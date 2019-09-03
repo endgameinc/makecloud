@@ -1,0 +1,21 @@
+opam-version: "1.2"
+maintainer: "Adam K. Ringwood <adam@endgame.com>"
+authors: [ "Adam K. Ringwood <adam@endgame.com>"
+           "Hezekiah M. Carty <hcarty@endgame.com>" ]
+license: "MIT"
+homepage: "https://github.com/endgameinc/makecloud"
+dev-repo: "https://github.com/endgameinc/makecloud.git"
+bug-reports: "https://github.com/endgameinc/makecloud"
+build: ["dune" "build" "@install"]
+build-test: ["dune" "build" "@runtest"]
+build-doc: [ "dune" "build" "@doc" ]
+depends: [
+  "dune"
+  "cmdliner" {>= "1.0.0"}
+  "lwt" {>= "2.7.0"}
+  "lwt_ppx"
+  "ocaml-monadic" {>= "0.4.0"}
+  "base64" {< "3.0.0"}
+  "cohttp_lwt_unix"
+]
+available: [ ocaml-version >= "4.05.0" ]

@@ -1,0 +1,20 @@
+<section class="section">
+    <div class="container">
+      <h1 class="title">
+        Makecloud - Show Run {{ item.guid }}
+      </h1>
+    {%- for item in stages -%}
+    <div class="content columns">
+      <div class="column">
+        <h3 class="need_to_be_rendered" datetime="{{ item.time }}"></h3>
+      </div>
+      <div class="column is-two-thirds">
+        <h3>{{ item.node_name }}</h3>
+      </div>
+      <div class="column">
+        <h3>{{ item.state }} </h3>
+      </div>
+    </div>
+    {% endfor -%}
+    </div>
+</section>

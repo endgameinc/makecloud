@@ -1,0 +1,8 @@
+(executable
+ (name agent)
+ (libraries lwt.unix cmdliner cohttp-lwt-unix yojson rresult)
+ (preprocess (pps lwt_ppx ocaml-monadic)))
+
+(alias
+  (name makecloud-agent)
+  (deps agent.exe))

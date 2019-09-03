@@ -1,0 +1,6 @@
+#!/bin/bash
+yum install -y libev curl
+curl {{ url }} -o /makecloud-agent
+chmod +x /makecloud-agent
+/makecloud-agent {{ key }}
+

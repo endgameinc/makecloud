@@ -1,0 +1,6 @@
+[submodule "ocaml-aws"]
+	path = ocaml-aws
+	url = https://github.com/inhabitedtype/ocaml-aws.git
+[submodule "web/jingoo"]
+	path = web/jingoo
+	url = https://github.com/tategakibunko/jingoo.git

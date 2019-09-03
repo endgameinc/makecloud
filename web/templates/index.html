@@ -1,0 +1,20 @@
+<section class="section">
+    <div class="container">
+      <h1 class="title">
+        Makecloud - Recent Builds
+      </h1>
+    {%- for item in links -%}
+    <div class="content columns">
+      <div class="column">
+        <h3 class="need_to_be_rendered" datetime="{{ item.created }}"></h3>
+      </div>
+      <div class="column is-two-thirds">
+        <h3> <a href="{{item.link}}">{{ item.guid }} </a></h3>
+      </div>
+      <div class="column">
+        <h3> {{ item.status }} </h3>
+      </div>
+    </div>
+    {% endfor -%}
+    </div>
+</section>

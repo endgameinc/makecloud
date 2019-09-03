@@ -1,0 +1,17 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Makecloud - Recent Builds</title>
+    <link rel="stylesheet" href="https://indestructibletype.com/fonts/Jost.css" type="text/css" charset="utf-8" />
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bulma/0.7.5/css/bulma.min.css">
+    <script defer src="https://use.fontawesome.com/releases/v5.3.1/js/all.js"></script>
+    <script defer onload="timeago.render(document.querySelectorAll('.need_to_be_rendered'));" src="/assets/timeago.min.js"> </script>
+  </head>
+  <body>
+    {%- autoescape false -%}
+      {{ content }}
+    {%- endautoescape -%}
+  </body>
+</html>
