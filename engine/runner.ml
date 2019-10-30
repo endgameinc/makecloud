@@ -364,11 +364,8 @@ module Aws : Provider = struct
       in
       let templated = Jingoo.Jg_template.from_string raw ~models in
       let b64 = Base64.(encode templated) |> R.failwith_error_msg in
-      let%lwt () = Lwt_io.printl b64 in
       Lwt.return (String.split_on_char '=' b64 |> List.hd)
     in
-    let%lwt () = Node.node_log n "Got Userdata." in
-    let%lwt () = Lwt_io.printl user_data in
     let instance_params =
       (*TODO We should gen an ssh key, upload it to aws and use that instead of a constant key. *)
       (*TODO Pull instance size from the config file.*)
@@ -711,7 +708,38 @@ let key_check () =
 
 let start_checks () = key_check ()
 
-let main repo_dir nocache deploy =
+let prune_nodes ns target_nodes =
+  let node_edges = List.map Node.get_edges ns |> List.concat in
+  let rev_edges = List.map (fun (x, y) -> (y, x)) node_edges in
+  let rec aux edges (targets : string list) =
+    let valid_edges =
+      List.filter
+        (fun (dst, _) -> List.exists (String.equal dst) targets)
+        edges
+    in
+    let new_targets =
+      List.fold_left
+        (fun ts (_, src) ->
+          match List.exists (String.equal src) ts with
+          | true ->
+              ts
+          | false ->
+              src :: ts)
+        targets valid_edges
+    in
+    if List.length targets == List.length new_targets then targets
+    else aux edges new_targets
+  in
+  match target_nodes with
+  | [] ->
+      ns
+  | target_nodes ->
+      let targets = aux rev_edges target_nodes in
+      List.filter
+        (fun x -> List.exists (String.equal (Node.node_to_string x)) targets)
+        ns
+
+let main repo_dir nocache deploy target_nodes =
   let () = start_checks () in
   let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
   let%lwt () =
@@ -727,11 +755,19 @@ let main repo_dir nocache deploy =
   let%lwt new_configs = get_configs repo_dir in
   (*TODO Handle printing exceptions better, maybe use Fmt?*)
   let nodes = R.failwith_error_msg (parse_configs new_configs) in
+  let%lwt () =
+    if List.length target_nodes > 0 then
+      Lwt_io.printl "Running only select nodes due to targetting."
+    else Lwt_io.printl "Running all nodes due to no targetting being selected."
+  in
+  let runable_nodes = prune_nodes nodes target_nodes in
   let%lwt pre_results = pre_source settings repo_dir guid transfer_fn in
   (*TODO Handle failing to upload our source bundle.*)
   let () = R.get_ok pre_results in
   let%lwt () = Notify.send_run_state settings guid Notify.RunStart in
-  match%lwt run settings repo_dir guid nodes transfer_fn nocache deploy with
+  match%lwt
+    run settings repo_dir guid runable_nodes transfer_fn nocache deploy
+  with
   | exception e ->
       let%lwt () = Notify.send_run_state settings guid Notify.RunException in
       let%lwt () =

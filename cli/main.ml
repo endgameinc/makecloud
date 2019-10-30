@@ -3,8 +3,24 @@ let sprintf = Printf.sprintf
 module R = Rresult.R
 open Engine.Lib
 
-let main repo_dir nocache deploy =
-  Lwt_main.run (Engine.Runner.main repo_dir nocache deploy)
+let main repo_dir nocache deploy target_nodes =
+  Lwt_main.run (Engine.Runner.main repo_dir nocache deploy target_nodes)
+
+let check repo_dir =
+  let aux () =
+    let () = Engine.Runner.start_checks () in
+    let _settings =
+      Engine.Settings.parse_settings
+        (Fpath.add_seg (Fpath.v repo_dir) "mc_settings.yml")
+    in
+    let%lwt new_configs = Engine.Runner.get_configs repo_dir in
+    (*TODO Handle printing exceptions better, maybe use Fmt?*)
+    let _nodes =
+      R.failwith_error_msg (Engine.Runner.parse_configs new_configs)
+    in
+    Lwt_io.printl "Looks good."
+  in
+  Lwt_main.run (aux ())
 
 let check_configs_main cwd =
   Lwt_main.run
@@ -89,10 +105,14 @@ let make_repo_dir p =
   Arg.(value & pos p string "." & info [] ~docv:"REPO_DIR" ~doc)
 
 let node_name =
-  let doc =
-    "A Makecloud node name as defined in the makecloud.yaml files."
-  in
+  let doc = "A Makecloud node name as defined in the makecloud.yaml files." in
   Arg.(required & pos 0 (some string) None & info [] ~docv:"NODE_NAME" ~doc)
+
+let target_nodes =
+  let doc =
+    "A list of makecloud nodes that you want those and only those to run."
+  in
+  Arg.(value & pos_right 0 string [] & info [] ~docv:"TARGET_NODES" ~doc)
 
 let nocache =
   let doc =
@@ -120,7 +140,16 @@ let invoke =
   let info =
     make_info "invoke" "run the series of nodes to build a repository."
   in
-  let term = Term.(const main $ make_repo_dir 0 $ nocache $ deploy) in
+  let term =
+    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes)
+  in
+  (term, info)
+
+let check =
+  let info =
+    make_info "check" "run all the pre-steps but don't actually run it."
+  in
+  let term = Term.(const check $ make_repo_dir 0) in
   (term, info)
 
 let check_configs =
@@ -162,6 +191,6 @@ let help =
   in
   (term, Cmdliner.Term.info "mc")
 
-let cmds = [invoke; check_configs; check_cache; dot; show_all_cache]
+let cmds = [invoke; check_configs; check_cache; dot; show_all_cache; check]
 
 let () = Term.(exit @@ eval_choice help cmds)
