@@ -727,7 +727,7 @@ let prune_nodes ns target_nodes =
               src :: ts)
         targets valid_edges
     in
-    if List.length targets == List.length new_targets then targets
+    if List.length targets = List.length new_targets then targets
     else aux edges new_targets
   in
   match target_nodes with
@@ -756,9 +756,9 @@ let main repo_dir nocache deploy target_nodes =
   (*TODO Handle printing exceptions better, maybe use Fmt?*)
   let nodes = R.failwith_error_msg (parse_configs new_configs) in
   let%lwt () =
-    if List.length target_nodes > 0 then
-      Lwt_io.printl "Running only select nodes due to targetting."
-    else Lwt_io.printl "Running all nodes due to no targetting being selected."
+    match target_nodes with
+    | [] -> Lwt_io.printl "Running all nodes due to no targetting being selected."
+    | _ -> Lwt_io.printl "Running only select nodes due to targetting."
   in
   let runable_nodes = prune_nodes nodes target_nodes in
   let%lwt pre_results = pre_source settings repo_dir guid transfer_fn in
