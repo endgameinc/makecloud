@@ -16,6 +16,6 @@ depends: [
   "lwt_ppx"
   "ocaml-monadic" {>= "0.4.0"}
   "base64" {< "3.0.0"}
-  "cohttp_lwt_unix"
+  "cohttp-lwt-unix"
 ]
 available: [ ocaml-version >= "4.05.0" ]

@@ -27,7 +27,8 @@ type t =
   ; aws_security_group: string
   ; aws_subnet_id: string
   ; linux_agent_url: Uri.t
-  ; windows_agent_url: Uri.t }
+  ; windows_agent_url: Uri.t
+  ; only_public_ip: bool [@default false]}
 [@@deriving protocol ~driver:(module Protocol_conv_yaml.Yaml)]
 
 let parse_settings filepath =

@@ -100,7 +100,7 @@ let process req body =
     String.equal gh_info.ref
       (sprintf "refs/heads/%s" gh_info.repository.master_branch)
   in
-  Lwt.async (fun () -> Engine.Runner.main dir_name false deploy) ;
+  Lwt.async (fun () -> Engine.Runner.main dir_name false deploy []);
   Lwt.return ()
 
 let handler req body =

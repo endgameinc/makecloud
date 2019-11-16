@@ -399,20 +399,23 @@ module Aws : Provider = struct
           (Types.DescribeInstancesRequest.make ~instance_ids:[instance_id] ())
       in
       let%lwt () = Node.node_log n "Trying to aquire the IP now." in
-      match%lwt result with
-      | `Ok
-          { reservations=
-              {instances= {private_ip_address= Some ip; _} :: _; _} :: _
-          ; _ } ->
-          Lwt.return_ok ip
+      let%lwt r = result in
+      match (r, settings.only_public_ip) with
       | `Ok
           { reservations=
               {instances= {public_ip_address= Some ip; _} :: _; _} :: _
-          ; _ } ->
+          ; _ }, true ->
+          let%lwt () = Node.node_log n (sprintf "ip addr: %s" ip) in
           Lwt.return_ok ip
-      | `Ok _ ->
-          Lwt.return (R.error_msg "Can't get a private ip for this box yet.")
-      | `Error _ as e ->
+      | `Ok
+          { reservations=
+              {instances= {private_ip_address= Some ip; _} :: _; _} :: _
+          ; _ }, false ->
+          let%lwt () = Node.node_log n (sprintf "ip addr: %s" ip) in
+          Lwt.return_ok ip
+      | `Ok _, _ ->
+          Lwt.return (R.error_msg "Can't get an ip for this box yet.")
+      | `Error _ as e, _ ->
           Lwt.return (aws_to_result e)
     in
     (*TODO aws_retry*)
