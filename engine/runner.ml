@@ -198,7 +198,7 @@ module Runner (M : Provider) = struct
     Aws_s3_lwt.S3.get ~bucket:settings.storage_bucket ~key:hash ~endpoint:ep
       ~credentials:safe_creds ()
 
-  let transfer_file ~old_guid ~new_guid ~(n : Node.real_node) filename :
+  let transfer_file ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) filename :
       (unit, Aws_s3_lwt.S3.error) result Lwt.t =
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
     let credentials = R.get_ok creds in
@@ -213,14 +213,14 @@ module Runner (M : Provider) = struct
       Aws_s3_lwt.S3.retry ~endpoint ~retries
         ~f:(fun ~endpoint () ->
           Aws_s3_lwt.S3.Multipart_upload.init ~endpoint ~credentials
-            ~bucket:"makecloud-storage" ~key:new_key ())
+            ~bucket:settings.storage_bucket ~key:new_key ())
         ()
     in
     let%bind () =
       Aws_s3_lwt.S3.retry ~endpoint ~retries
         ~f:(fun ~endpoint () ->
           Aws_s3_lwt.S3.Multipart_upload.copy_part ~endpoint ~credentials init
-            ~bucket:"makecloud-storage" ~key:old_key ~part_number:1 ())
+            ~bucket:settings.storage_bucket ~key:old_key ~part_number:1 ())
         ()
     in
     let _md5 =
@@ -232,7 +232,7 @@ module Runner (M : Provider) = struct
     in
     Lwt_result.return ()
 
-  let process_cache ~old_guid ~new_guid ~(n : Node.real_node) =
+  let process_cache ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) =
     let%lwt () = Lwt_io.printl (n.color ^ "Processing cache for " ^ n.name) in
     let cmd_filter x =
       String.split_on_char ' ' x |> List.hd |> String.equal "UPLOAD"
@@ -240,7 +240,7 @@ module Runner (M : Provider) = struct
     let upload_steps = List.filter cmd_filter n.steps in
     let%lwt transfers =
       Lwt_list.map_p
-        (transfer_file ~old_guid ~new_guid ~n)
+        (transfer_file ~settings ~old_guid ~new_guid ~n)
         (List.map
            (fun x -> List.nth (String.split_on_char ' ' x) 2)
            upload_steps)
@@ -259,7 +259,7 @@ module Runner (M : Provider) = struct
     match is_cachable && R.is_ok cache_status && not nocache with
     | true -> (
         let cache_guid = R.get_ok cache_status in
-        match%lwt process_cache ~old_guid:cache_guid ~new_guid:guid ~n with
+        match%lwt process_cache ~settings ~old_guid:cache_guid ~new_guid:guid ~n with
         | [] ->
             Lwt_result.return true
         (* TODO: this should handle errors better *)
@@ -684,7 +684,7 @@ let pre_source (settings : Settings.t) cwd guid
   let temp = Filename.temp_file "makecloud_" ".tar" in
   let%lwt _pout =
     let excludes =
-      List.map (sprintf "--exclude=\'%s\'") settings.ignored_files
+      List.map (sprintf "--exclude=\'%s/%s\'" cwd) settings.ignored_files
       |> String.concat " "
     in
     Lwt_process.pread
@@ -693,11 +693,12 @@ let pre_source (settings : Settings.t) cwd guid
   let upload_url =
     transfer_fn (sprintf "/%s/source.tar" (Uuidm.to_string guid)) `Put
   in
+  let upload_cmd = (sprintf "curl -X PUT \'%s\' --upload-file %s"
+            (Uri.to_string upload_url) temp)
+  in
   let%lwt _pout =
     Lwt_process.pread
-      (Lwt_process.shell
-         (sprintf "curl -X PUT \'%s\' --upload-file %s"
-            (Uri.to_string upload_url) temp))
+      (Lwt_process.shell upload_cmd)
   in
   let%lwt () = Lwt_io.printl "Finished uploading source for agents." in
   Lwt.return @@ Ok ()
@@ -748,12 +749,12 @@ let main repo_dir nocache deploy target_nodes =
   let%lwt () =
     Lwt_io.printl ("GUID for this run is (" ^ Uuidm.to_string guid ^ ")")
   in
-  let%lwt transfer_fn =
-    pre_presign ~bucket:"makecloud-storage" ~duration:86400 ~region:"us-east-1"
-  in
   let settings =
     Settings.parse_settings
       (Fpath.add_seg (Fpath.v repo_dir) "mc_settings.yml")
+  in
+  let%lwt transfer_fn =
+    pre_presign ~bucket:settings.storage_bucket ~duration:86400 ~region:"us-east-1"
   in
   let%lwt new_configs = get_configs repo_dir in
   (*TODO Handle printing exceptions better, maybe use Fmt?*)
