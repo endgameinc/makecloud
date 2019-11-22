@@ -522,7 +522,7 @@ module Aws : Provider = struct
           | _ ->
               Lwt.return (R.error ("some other error.", "some other error.")) )
     in
-    repeat_until_ok poll_agent 120
+    repeat_until_ok poll_agent 17280
 
   let runcmd transfer (box, _instance_id) (n : Node.real_node) cmd :
       (string, [> R.msg] * string) result Lwt.t =

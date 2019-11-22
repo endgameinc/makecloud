@@ -1,5 +1,6 @@
 open Cohttp_lwt_unix
 module R = Rresult.R
+let sprintf = Printf.sprintf
 
 let env = ref [||]
 
@@ -71,7 +72,7 @@ let http_command _req body =
   let%lwt command = Cohttp_lwt.Body.to_string body in
   (*TODO: We can probably run forever now with the polling change.*)
   let promise =
-    run_command ~timeout:1200.0 ~command:(Lwt_process.shell command)
+    run_command ~timeout:43200.0 ~command:(Lwt_process.shell command)
   in
   let id = !next_id in
   next_id := id + 1 ;
@@ -116,9 +117,9 @@ let http_check_command req body =
     | Lwt.Sleep ->
         Server.respond_string ~status:`Accepted
           ~body:"Please try again in a bit, not finished processing yet" ()
-    | Lwt.Fail _ ->
+    | Lwt.Fail e ->
         Server.respond_string ~status:`Internal_server_error
-          ~body:"Something went very wrong. Please try again." ()
+          ~body:(sprintf "Something went very wrong will running command: %s." (Printexc.to_string e)) ()
     | Lwt.Return (status, stdout, stderr) -> (
       match status with
       | WEXITED 0 ->
