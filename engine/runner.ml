@@ -373,6 +373,7 @@ module Aws : Provider = struct
         ~key_name:settings.aws_key_name
         ~security_group_ids:[settings.aws_security_group]
         ~instance_type:Types.InstanceType.M4_xlarge
+        ~block_device_mappings:[Types.BlockDeviceMapping.make ~device_name:"/dev/xvda" ~ebs:(Types.EbsBlockDevice.make ~volume_size:settings.disk_size ~delete_on_termination:true ()) ()]
         ~subnet_id:settings.aws_subnet_id ~user_data ()
     in
     let get_instance_id () =

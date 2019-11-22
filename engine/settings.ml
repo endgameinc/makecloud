@@ -28,7 +28,8 @@ type t =
   ; aws_subnet_id: string
   ; linux_agent_url: Uri.t
   ; windows_agent_url: Uri.t
-  ; only_public_ip: bool [@default false]}
+  ; only_public_ip: bool [@default false]
+  ; disk_size: int [@default 10]}
 [@@deriving protocol ~driver:(module Protocol_conv_yaml.Yaml)]
 
 let parse_settings filepath =
