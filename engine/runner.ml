@@ -684,11 +684,12 @@ let pre_source (settings : Settings.t) cwd guid
   let temp = Filename.temp_file "makecloud_" ".tar" in
   let%lwt _pout =
     let excludes =
-      List.map (sprintf "--exclude=\'%s/%s\'" cwd) settings.ignored_files
+      List.map (sprintf "--exclude=\'%s\'") settings.ignored_files
       |> String.concat " "
     in
+    let cmd = sprintf "tar cf %s %s -C %s ." temp excludes cwd in
     Lwt_process.pread
-      (Lwt_process.shell (sprintf "tar -cf %s -C %s . %s" temp cwd excludes))
+      (Lwt_process.shell cmd)
   in
   let upload_url =
     transfer_fn (sprintf "/%s/source.tar" (Uuidm.to_string guid)) `Put
