@@ -1,5 +1,6 @@
 (alias
   (name makecloud)
   (deps
-    (alias_rec makecloud-core)
-    (alias_rec makecloud-agent)))
+    (alias_rec makecloud-cli)
+    (alias_rec makecloud-agent)
+    (alias_rec makecloud-web)))

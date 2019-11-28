@@ -6,4 +6,4 @@
 
 (alias
   (name makecloud-cli)
-  (deps mc))
+  (deps main.exe))
