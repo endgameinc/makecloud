@@ -18,10 +18,10 @@ module Templates = struct
   let show_runs = [%blob "templates/show_runs.html"]
 end
 
-let authentication req =
+let authentication api_key req =
   let key = Cohttp.Header.get (Request.headers req) "ApiKey" in
   (* TODO Make this a real auth string taken from the commandline. *)
-  match option_map (String.equal "FooBar") key with
+  match option_map (String.equal api_key) key with
   | Some true ->
       true
   | _ ->
@@ -179,16 +179,17 @@ let serve_timeago _req body =
   let body = [%blob "assets/timeago.min.js"] in
   Server.respond_string ~status:`OK ~body ()
 
-let auth callback req body =
-  match authentication req with
+let http_auth api_key callback req body =
+  match authentication api_key req with
   | true ->
       callback req body
   | false ->
       Server.respond_string ~status:`Unauthorized ~body:"incorrect api key\n"
         ()
 
-let router _conn req body =
+let router api_key _conn req body =
   let uri = Cohttp.Request.uri req in
+  let auth = http_auth api_key in
   match Uri.path uri with
   | "/" ->
       show_index req body
@@ -205,16 +206,18 @@ let router _conn req body =
   | _ ->
       ret_404_http ()
 
-let server =
-  Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:router ())
+let server api_key =
+  Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:(router api_key) ())
 
-let main = Lwt_main.run server
+let main api_key = Lwt_main.run (server api_key)
 
 open Cmdliner
 
-let main_t =
-  let open Term in
-  const main
+let auth_cli p =
+  let doc = "Path to the repository to process." in
+  Arg.(value & pos p string "." & info [] ~docv:"MC_KEY" ~doc)
+
+let main_t = Term.(const main $ auth_cli 0)
 
 let info =
   let doc = "the web server for makecloud." in
