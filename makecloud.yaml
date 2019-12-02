@@ -1,0 +1,20 @@
+makecloud:
+  fileroot: serviceA/
+  base: ami-00eb20669e0990cb4
+  steps:
+    - RUN yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
+    - RUN yum install -y m4 gcc patch bubblewrap git hg darcs pcre-devel gmp-devel
+    - RUN curl -L -o /tmp/opam https://github.com/ocaml/opam/releases/download/2.0.5/opam-2.0.5-x86_64-linux
+    - RUN cp /tmp/opam /usr/bin/opam
+    - RUN chmod a+x /usr/bin/opam
+    - RUN uname -s
+    - RUN uname -a
+    - RUN yes "" | sudo -u ec2-user opam init -n --disable-completion --bare | tee /log_output
+    - RUN chown -R ec2-user /source
+    - RUN sudo -u ec2-user opam switch install -y /source 4.07.1
+    - RUN cd source; sudo -u ec2-user opam install -y .
+    - RUN cd source; sudo -u ec2-user opam exec -- dune build @makecloud
+    - UPLOAD /source/_build/default/cli/main.exe mc
+    - UPLOAD /source/_build/default/agent/agent.exe mc-agent
+    - UPLOAD /source/_build/default/web/web.exe mc-web
+
