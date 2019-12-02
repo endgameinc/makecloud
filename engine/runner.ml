@@ -447,7 +447,7 @@ module Aws : Provider = struct
         Lwt.return None
 
   (*TODO Please no more string types.*)
-  let send_command box s : (string, [> R.msg] * string) result Lwt.t =
+  let send_command box s ~expire_time : (string, [> R.msg] * string) result Lwt.t =
     let uri = Uri.of_string ("http://" ^ box ^ ":8000/command") in
     let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
     let rec repeat_until_ok f c =
@@ -523,22 +523,23 @@ module Aws : Provider = struct
           | _ ->
               Lwt.return (R.error ("some other error.", "some other error.")) )
     in
-    repeat_until_ok poll_agent 17280
+    repeat_until_ok poll_agent expire_time
 
   let runcmd transfer (box, _instance_id) (n : Node.real_node) cmd :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt () = Node.node_log n cmd in
+    let expire_time = 12 * Node.rnode_get_expire_time n in
     match List.hd (String.split_on_char ' ' cmd) with
     | "RUN" ->
-        send_command box @@ String.sub cmd 4 (String.length cmd - 4)
+        send_command box ~expire_time @@ String.sub cmd 4 (String.length cmd - 4)
     | "UPLOAD" ->
         let split_cmd = String.split_on_char ' ' cmd in
-        send_command box
+        send_command box ~expire_time
         @@ transfer ~first_arg:(List.nth split_cmd 1)
              ~second_arg:(List.nth split_cmd 2) ~verb:`Put
     | "DOWNLOAD" ->
         let split_cmd = String.split_on_char ' ' cmd in
-        send_command box
+        send_command box ~expire_time
         @@ transfer ~first_arg:(List.nth split_cmd 1)
              ~second_arg:(List.nth split_cmd 2) ~verb:`Get
     | _ ->

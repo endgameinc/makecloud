@@ -1,16 +1,23 @@
 open Lib
 
-type keyword = NoCache | Deploy | Windows [@@deriving show, eq]
+type keyword = NoCache | Deploy | Windows | Expire of int [@@deriving show, eq]
 
-let keyword_of_string = function
-  | "nocache" ->
+let keyword_of_string k =
+  let split_cmd = String.split_on_char '-' k in
+  match split_cmd with
+  | ["nocache"] ->
       Ok NoCache
-  | "deploy" ->
+  | ["deploy"] ->
       Ok Deploy
-  | "windows" ->
+  | ["windows"] ->
       Ok Windows
-  | _ as s ->
-      R.error_msg (sprintf "%s is not a known keyword." s)
+  | ["expire"; m] ->
+      (try Ok (Expire (int_of_string m)) 
+      with _ -> R.error_msg (sprintf "%s's argument must be a int." k))
+  | ["expire"] ->
+      R.error_msg (sprintf "%s needs a argument, i.e. expire-30 or expire-60." k)
+  | _ ->
+      R.error_msg (sprintf "%s is not a known keyword." k)
 
 type real_node =
   { name: string
@@ -50,6 +57,18 @@ let is_node_cachable n =
 
 let rnode_has_keyword (n : real_node) keyword =
   List.exists (equal_keyword keyword) n.keywords
+
+let rnode_get_expire_time (n : real_node) =
+  let aux (current : int option) new_keyword : int option =
+    match current, new_keyword with
+    | _, Expire m -> Some m
+    | Some _ as s, _ -> s
+    | None, _ -> None
+  in
+  match List.fold_left aux None n.keywords with
+  | Some m -> m
+  (*TODO: Change this to be defined somewhere better, maybe a defaults module in engine?.*)
+  | None -> 20
 
 let node_has_keyword (n : node) keyword =
   match n with Rnode x -> rnode_has_keyword x keyword | Snode _ -> false
