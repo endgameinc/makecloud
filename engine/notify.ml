@@ -46,7 +46,7 @@ let run_state_of_string = function
   | _ ->
       None
 
-let send_state (settings : Settings.t) guid node (state : state) =
+let send_state ~(settings : Settings.t) ~guid ~node (state : state) ~key =
   match settings.notify_url with
   | None ->
       Lwt.return ()
@@ -59,14 +59,14 @@ let send_state (settings : Settings.t) guid node (state : state) =
         ; ("state", state_to_string state) ]
       in
       let uri = Uri.with_query' uri q_params in
-      let headers = Cohttp.Header.init_with "ApiKey" "FooBar" in
+      let headers = Cohttp.Header.init_with "ApiKey" key in
       let body = Cohttp_lwt.Body.empty in
       (*TODO cohttp_retry. *)
       let%lwt _resp, body = Cohttp_lwt_unix.Client.put uri ~headers ~body in
       let%lwt () = Cohttp_lwt.Body.drain_body body in
       Lwt.return ()
 
-let send_run_state (settings : Settings.t) guid (state : run_state) =
+let send_run_state ~(settings : Settings.t) ~guid (state : run_state) ~key =
   match settings.notify_url with
   | None ->
       Lwt.return ()
@@ -80,7 +80,7 @@ let send_run_state (settings : Settings.t) guid (state : run_state) =
         name @ [("guid", guid); ("state", run_state_to_string state)]
       in
       let uri = Uri.with_query' uri q_params in
-      let headers = Cohttp.Header.init_with "ApiKey" "FooBar" in
+      let headers = Cohttp.Header.init_with "ApiKey" key in
       let body = Cohttp_lwt.Body.empty in
       (*TODO cohttp_retry. *)
       let%lwt _resp, body = Cohttp_lwt_unix.Client.put uri ~headers ~body in

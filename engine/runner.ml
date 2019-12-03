@@ -100,8 +100,9 @@ module Runner (M : Provider) = struct
       ~(transfer_fn : string -> [`Get | `Put] -> Uri.t) ~guid :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt box = M.spinup settings n in
+    let key = Sys.getenv "MC_KEY" in
     let%lwt () =
-      Notify.send_state settings guid (Node.Rnode n) Notify.StartBox
+      Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.StartBox
     in
     let%lwt _ready = repeat_until_some (M.wait_until_ready box n) 40 in
     let uri_str =
@@ -122,7 +123,7 @@ module Runner (M : Provider) = struct
     (*TODO: We should handle failure here.*)
     let%lwt () = M.set_env box n in
     let%lwt () =
-      Notify.send_state settings guid (Node.Rnode n) Notify.StartCommands
+      Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.StartCommands
     in
     let%lwt result =
       Lwt_list.fold_left_s
@@ -141,13 +142,13 @@ module Runner (M : Provider) = struct
     match result with
     | Ok logs, old_logs ->
         let%lwt () =
-          Notify.send_state settings guid (Node.Rnode n)
+          Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key
             Notify.EndBoxSuccessful
         in
         Lwt.return (Ok (old_logs ^ logs))
     | Error (err, logs), old_logs ->
         let%lwt () =
-          Notify.send_state settings guid (Node.Rnode n) Notify.EndBoxFailed
+          Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.EndBoxFailed
         in
         Lwt.return (Error (err, old_logs ^ logs))
 
@@ -757,7 +758,7 @@ let main repo_dir nocache deploy target_nodes =
       (Fpath.add_seg (Fpath.v repo_dir) "mc_settings.yml")
   in
   let%lwt transfer_fn =
-    pre_presign ~bucket:settings.storage_bucket ~duration:86400 ~region:"us-east-1"
+    pre_presign ~bucket:settings.storage_bucket ~duration:86400 ~region:settings.bucket_region
   in
   let%lwt new_configs = get_configs repo_dir in
   (*TODO Handle printing exceptions better, maybe use Fmt?*)
@@ -769,14 +770,15 @@ let main repo_dir nocache deploy target_nodes =
   in
   let runable_nodes = prune_nodes nodes target_nodes in
   let%lwt pre_results = pre_source settings repo_dir guid transfer_fn in
+  let key = Sys.getenv "MC_KEY" in
   (*TODO Handle failing to upload our source bundle.*)
   let () = R.get_ok pre_results in
-  let%lwt () = Notify.send_run_state settings guid Notify.RunStart in
+  let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunStart in
   match%lwt
     run settings repo_dir guid runable_nodes transfer_fn nocache deploy
   with
   | exception e ->
-      let%lwt () = Notify.send_run_state settings guid Notify.RunException in
+      let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunException in
       let%lwt () =
         Lwt_io.printf
           "Something has gone wrong, we received in exception:\n %s \n"
@@ -784,10 +786,10 @@ let main repo_dir nocache deploy target_nodes =
       in
       raise e
   | _, [], [] ->
-      let%lwt () = Notify.send_run_state settings guid Notify.RunSuccess in
+      let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunSuccess in
       Lwt_io.printl "All nodes completed successfully."
   | complete, failed, todo ->
-      let%lwt () = Notify.send_run_state settings guid Notify.RunFail in
+      let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunFail in
       let completed_names =
         List.map Node.node_to_string complete |> String.concat " "
       in

@@ -207,6 +207,7 @@ let router api_key _conn req body =
       ret_404_http ()
 
 let server api_key =
+  let () = key_check () in
   Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:(router api_key) ())
 
 let main api_key = Lwt_main.run (server api_key)

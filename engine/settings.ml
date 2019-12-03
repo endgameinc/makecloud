@@ -23,6 +23,7 @@ type t =
   ; notify_url: Uri.t option [@default None]
   ; name: string option [@default None]
   ; storage_bucket: string
+  ; bucket_region: string
   ; aws_key_name: string
   ; aws_security_group: string
   ; aws_subnet_id: string
