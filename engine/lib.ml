@@ -109,3 +109,10 @@ let run_command ~timeout ~command =
       and stdout = Lwt_io.read p#stdout
       and stderr = Lwt_io.read p#stderr in
       Lwt.return (status, stdout, stderr))
+
+let key_check () =
+  match Sys.getenv_opt "MC_KEY" with
+  | Some _ ->
+      ()
+  | None ->
+      failwith "Error: The ENV variable MC_KEY isn't set and must be set."

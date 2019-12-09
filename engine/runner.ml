@@ -707,13 +707,6 @@ let pre_source (settings : Settings.t) cwd guid
   let%lwt () = Lwt_io.printl "Finished uploading source for agents." in
   Lwt.return @@ Ok ()
 
-let key_check () =
-  match Sys.getenv_opt "MC_KEY" with
-  | Some _ ->
-      ()
-  | None ->
-      failwith "Error: The ENV variable MC_KEY isn't set and must be set."
-
 let start_checks () = key_check ()
 
 let prune_nodes ns target_nodes =
