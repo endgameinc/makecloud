@@ -12,7 +12,7 @@ let keyword_of_string k =
   | ["windows"] ->
       Ok Windows
   | ["expire"; m] ->
-      (try Ok (Expire (int_of_string m)) 
+      (try Ok (Expire (int_of_string m))
       with _ -> R.error_msg (sprintf "%s's argument must be a int." k))
   | ["expire"] ->
       R.error_msg (sprintf "%s needs a argument, i.e. expire-30 or expire-60." k)
@@ -21,7 +21,7 @@ let keyword_of_string k =
 
 type real_node =
   { name: string
-  ; file_root: string
+  ; file_root: string list
   ; base: string
   ; dependson: string list
   ; steps: string list
@@ -87,22 +87,25 @@ let hash_of_folder folder =
 
 let hash_of_node_config (n : real_node) =
   let all_text =
-    List.concat [[n.name; n.file_root; n.base]; n.dependson; n.steps]
+    List.concat [[n.name; n.base]; n.file_root; n.dependson; n.steps]
   in
   Digestif.SHA256.digest_string (String.concat " " all_text)
   |> Digestif.SHA256.to_hex
 
 let hash_of_node cwd (n : real_node) =
-  let%lwt file_hash = hash_of_folder (Filename.concat cwd n.file_root) in
+  let%lwt file_hash = Lwt_list.map_p (fun x -> hash_of_folder (Filename.concat cwd x)) n.file_root in
   let config_hash = hash_of_node_config n in
   let final_hash =
-    Digestif.SHA256.digest_string (String.concat " " [file_hash; config_hash])
+    Digestif.SHA256.digest_string (String.concat " " (config_hash :: file_hash))
   in
   Lwt.return (Digestif.SHA256.to_hex final_hash)
 
 let print_hash_breakdown cwd (n : real_node) =
-  let%lwt file_hash = hash_of_folder (Filename.concat cwd n.file_root) in
-  let%lwt () = Lwt_io.printf "Hash of node folder is: %s\n" file_hash in
+  let aux x =
+    let%lwt file_hash = hash_of_folder (Filename.concat cwd x) in
+    Lwt_io.printf "Hash of node folder %s is %s\n" x file_hash
+  in
+  let%lwt () = Lwt_list.iter_s aux n.file_root in
   let config_hash = hash_of_node_config n in
   let%lwt () = Lwt_io.printf "Hash of node config is: %s\n" config_hash in
   Lwt.return_unit
@@ -170,7 +173,15 @@ let make_rnode (yaml_root : string * Yaml.value) :
   let bind = R.bind in
   let node_name, _ = yaml_root in
   let%bind attrib_list = get_assoc_list (snd yaml_root) in
-  let%bind file_root = get_string_from_attrib_list attrib_list "fileroot" in
+  let%bind file_root =
+    match get_value attrib_list "fileroot" with
+    | Error _ ->
+      R.error_msg (sprintf "%s needs an attribute fileroot" node_name)
+    | Ok roots ->
+      (match get_array roots with
+      | Error _ -> get_string (snd roots) |> R.map (fun x -> [x])
+      | Ok roots_list -> result_fold get_string [] roots_list)
+  in
   let%bind base = get_string_from_attrib_list attrib_list "base" in
   let%bind steps_raw = get_value attrib_list "steps" in
   let%bind steps_yaml = get_array steps_raw in
