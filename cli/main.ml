@@ -27,6 +27,31 @@ let check_configs_main cwd =
     (let%lwt configs = Engine.Runner.get_configs cwd in
      Lwt_list.iter_s Lwt_io.printl configs)
 
+let purge repo_dir target_hash () =
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+    let credentials = R.get_ok creds in
+     let settings =
+       Engine.Settings.parse_settings
+         (Fpath.add_seg (Fpath.v repo_dir) "mc_settings.yml")
+    in
+    let endpoint =
+      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https Aws_s3.Region.Us_east_1
+    in
+    let check key =
+      Aws_s3_lwt.S3.retry ~endpoint ~retries:5
+        ~f:(fun ~endpoint () ->
+          Aws_s3_lwt.S3.delete ~bucket:settings.storage_bucket ~key ~endpoint ~credentials ())
+        ()
+    in
+    let _ = Lwt_list.map_p check target_hash in
+    Lwt.return ()
+
+let purge_main repo_dir target_hash =
+    Lwt_main.run ( 
+        purge repo_dir target_hash ()
+    )
+
+
 let check_cache_per_node (node_name : string) cwd =
   Lwt_main.run
     (let%lwt new_configs = Engine.Runner.get_configs cwd in
@@ -114,6 +139,12 @@ let target_nodes =
   in
   Arg.(value & pos_right 0 string [] & info [] ~docv:"TARGET_NODES" ~doc)
 
+let target_hash =
+  let doc =
+    "A hash of a node to remove the cache of"
+  in
+  Arg.(value & pos_right 0 string [] & info [] ~docv:"TARGET_HASH" ~doc)
+
 let nocache =
   let doc =
     "Don't use any historical caches. Used to force a fresh build. (will \
@@ -185,12 +216,20 @@ let show_all_cache =
   let term = Term.(const show_all_cache $ make_repo_dir 0) in
   (term, info)
 
+let purge_cache = 
+    let info =
+        make_info "purge-cache"
+        "purges one node's cached files for build"
+    in
+    let term = Term.(const purge_main $ make_repo_dir 0 $ target_hash) in
+    (term, info)
+
 let help =
   let term =
     Cmdliner.Term.(ret (const (fun _ -> `Help (`Pager, None)) $ const ()))
   in
   (term, Cmdliner.Term.info "mc")
 
-let cmds = [invoke; check_configs; check_cache; dot; show_all_cache; check]
+let cmds = [invoke; check_configs; check_cache; dot; show_all_cache; check; purge_cache]
 
 let () = Term.(exit @@ eval_choice help cmds)
