@@ -34,8 +34,9 @@ let purge repo_dir target_hash () =
        Engine.Settings.parse_settings
          (Fpath.add_seg (Fpath.v repo_dir) "mc_settings.yml")
     in
+    let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
-      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https Aws_s3.Region.Us_east_1
+      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
     in
     let check key =
       Aws_s3_lwt.S3.retry ~endpoint ~retries:5
