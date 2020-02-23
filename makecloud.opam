@@ -17,6 +17,8 @@ depends: [
   "ocaml-monadic" {>= "0.4.0"}
   "base64"
   "cohttp-lwt-unix"
+  "aws-lwt"
+  "aws-ec2"
   "aws-s3-lwt"
   "calendar"
   "ppx_blob"
