@@ -1,3 +1,5 @@
+let sprintf = Printf.sprintf
+
 type state = StartBox | StartCommands | EndBoxSuccessful | EndBoxFailed
 
 type run_state = RunStart | RunSuccess | RunFail | RunException
@@ -12,6 +14,9 @@ let state_to_string = function
   | EndBoxFailed ->
       "EndBoxFailed"
 
+let state_to_json x =
+  `String (state_to_string x)
+
 let run_state_to_string = function
   | RunStart ->
       "RunStart"
@@ -21,6 +26,9 @@ let run_state_to_string = function
       "RunFail"
   | RunException ->
       "RunException"
+
+let run_state_to_json x =
+  `String (run_state_to_string x)
 
 let state_of_string = function
   | "StartBox" ->
@@ -34,6 +42,12 @@ let state_of_string = function
   | _ ->
       None
 
+let state_of_json_exn = function
+  | `String v -> (match state_of_string v with
+    | Some x -> x
+    | None -> raise (Failure (sprintf "Failed to parse %s into a valid state." v)))
+  | _ -> raise (Failure "wrong type of value to parse into state.")
+
 let run_state_of_string = function
   | "RunStart" ->
       Some RunStart
@@ -45,6 +59,13 @@ let run_state_of_string = function
       Some RunException
   | _ ->
       None
+
+let run_state_of_json_exn = function
+  | `String v -> (match run_state_of_string v with
+    | Some x -> x
+    | None -> raise (Failure (sprintf "Failed to parse %s into a valid run state." v)))
+  | _ -> raise (Failure "wrong type of value to parse into run state.")
+
 
 let send_state ~(settings : Settings.t) ~guid ~node (state : state) ~key =
   match settings.notify_url with

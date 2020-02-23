@@ -33,6 +33,7 @@ depends: [
   "tls"
   "uucp"
   "ezxmlm"
+  "irmin"
 ]
 synopsis: "A simple build system for complex builds"
 available: [ ocaml-version >= "4.05.0" ]
