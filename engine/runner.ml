@@ -376,16 +376,27 @@ module Aws : Provider = struct
     let instance_params =
       (*TODO We should gen an ssh key, upload it to aws and use that instead of a constant key. *)
       (*TODO Pull instance size from the config file.*)
-      Types.RunInstancesRequest.make ~image_id:n.base ~min_count:1 ~max_count:1
+      Types.RunInstancesRequest.make
+        ~image_id:n.base
+        ~min_count:1 ~max_count:1
         ~key_name:settings.aws_key_name
         ~security_group_ids:[settings.aws_security_group]
         ~instance_type:Types.InstanceType.M4_xlarge
-        ~block_device_mappings:[Types.BlockDeviceMapping.make ~device_name:"/dev/xvda" ~ebs:(Types.EbsBlockDevice.make ~volume_size:settings.disk_size ~delete_on_termination:true ()) ()]
-        ~subnet_id:settings.aws_subnet_id ~user_data ()
+        ~block_device_mappings:[
+          Types.BlockDeviceMapping.make
+            ~device_name:"/dev/xvda"
+            ~ebs:(Types.EbsBlockDevice.make
+                    ~volume_size:settings.disk_size
+                    ~delete_on_termination:true ())
+            ()]
+        ~subnet_id:settings.aws_subnet_id
+        ~user_data ()
     in
     let get_instance_id () =
       let%lwt result =
-        Aws_lwt.Runtime.run_request ~region:settings.aws_region ~access_key:aws_key
+        Aws_lwt.Runtime.run_request
+          ~region:settings.aws_region
+          ~access_key:aws_key
           ~secret_key:aws_secret
           (module RunInstances)
           instance_params
