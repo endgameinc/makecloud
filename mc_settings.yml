@@ -1,9 +1,11 @@
 cachable: true
 ignored_files: [ _build, _opam ]
 storage_bucket: makecloud-cache
-aws_security_group: sg-040ca5f3cf5362f20
+bucket_region: us-east-2
+aws_region: us-east-2
+aws_security_group: sg-03d476f60972fa153
 aws_key_name: makecloud
-aws_subnet_id: subnet-098c8f3f890bdfeb8
-linux_agent_url: https://makecloud.s3.us-east-2.amazonaws.com/linux_agent
+aws_subnet_id: subnet-02d2562cff6c764dd
+linux_agent_url: https://makecloud.s3.us-east-2.amazonaws.com/linux_agent_beta
 windows_agent_url: https://makecloud.s3.us-east-2.amazonaws.com/mc_agent
 only_public_ip: true

@@ -17,8 +17,6 @@ depends: [
   "ocaml-monadic" {>= "0.4.0"}
   "base64"
   "cohttp-lwt-unix"
-  "aws-lwt"
-  "aws-ec2"
   "aws-s3-lwt"
   "calendar"
   "ppx_blob"
@@ -36,6 +34,7 @@ depends: [
   "uucp"
   "ezxmlm"
   "irmin"
+  "irmin-unix"
 ]
 synopsis: "A simple build system for complex builds"
 available: [ ocaml-version >= "4.05.0" ]

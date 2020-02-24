@@ -115,7 +115,7 @@ let handle_output job_id out err =
     Lwt.return (String.concat "\n" all_lines)
   | Some old_lines ->
     let untouched = List.remove_assoc job_id !outputs in
-    let lines = all_lines @ old_lines in
+    let lines = old_lines @ all_lines in
     outputs := (job_id, lines) :: untouched;
     Lwt.return (String.concat "\n" (lines))
 
