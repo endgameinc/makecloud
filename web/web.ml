@@ -245,7 +245,7 @@ let load_data t =
       keys)
 
 let server api_key =
-  let () = key_check () in
+  let () = Engine.Lib.key_check () in
   let config = Irmin_fs.config "mc_datastore" in
   let%lwt repo = Run_store.Repo.v config in
   let%lwt tree = Run_store.master repo in
