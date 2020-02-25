@@ -6,6 +6,8 @@ let env = ref [||]
 
 let cmds = ref []
 
+let outputs = ref []
+
 let next_id = ref 0
 
 let win_env =
@@ -35,7 +37,7 @@ let win_env =
 let option_map fx x = match x with Some y -> Some (fx y) | None -> None
 
 (* stolen from extractor *)
-let run_command ~timeout ~command =
+let run_command ~command =
   let additional_env =
     match Sys.os_type with
     | "Win32" | "Cygwin" ->
@@ -51,17 +53,15 @@ let run_command ~timeout ~command =
     | _ ->
         [||]
   in
-  Lwt_process.with_process_full ~env:(Array.append !env additional_env)
-    ~timeout command (fun p ->
-      let%lwt () = Lwt_io.close p#stdin in
-      let%lwt status = p#status
-      and stdout = Lwt_io.read p#stdout
-      and stderr = Lwt_io.read p#stderr in
-      Lwt.return (status, stdout, stderr))
+  let lwt_ofd, ofd = Lwt_unix.pipe_in () in
+  let out = Lwt_io.(read_lines (of_fd ~mode:Input lwt_ofd)) in
+  let lwt_efd, efd = Lwt_unix.pipe_in () in
+  let err = Lwt_io.(read_lines (of_fd ~mode:Input lwt_efd)) in
+  let status = Lwt_process.exec ~env:(Array.append !env additional_env) ~stdout:(`FD_copy ofd) ~stderr:(`FD_copy efd) command in
+  Lwt.return (status, out, err)
 
 let authentication key req =
   let req_key = Cohttp.Header.get (Request.headers req) "ApiKey" in
-  (* TODO Make this a real auth string taken from the commandline. *)
   match option_map (String.equal key) req_key with
   | Some true ->
       true
@@ -70,17 +70,15 @@ let authentication key req =
 
 let http_command _req body =
   let%lwt command = Cohttp_lwt.Body.to_string body in
-  (*TODO: We can probably run forever now with the polling change.*)
   let promise =
-    run_command ~timeout:43200.0 ~command:(Lwt_process.shell command)
+    run_command ~command:(Lwt_process.shell command)
   in
   let id = !next_id in
   next_id := id + 1 ;
   cmds := (id, promise) :: !cmds ;
   Server.respond_string ~status:`Accepted ~body:(string_of_int id) ()
 
-(* TOOD: Figure out how to handle this better. *)
-
+(* TOOD: Figure out how to handle this better. Probably should use norest once that gets open sourced.*)
 let get_command req =
   let uri = Cohttp_lwt_unix.Request.uri req in
   let bind = R.bind in
@@ -105,28 +103,47 @@ let get_command req =
     | Some x ->
         R.ok x
   in
-  R.ok promise
+  R.ok (id, promise)
+
+let handle_output job_id out err =
+  let new_out_lines = Lwt_stream.get_available out in
+  let new_err_lines = Lwt_stream.get_available err in
+  let all_lines = new_out_lines @ new_err_lines in
+  match List.assoc_opt job_id !outputs with
+  | None ->
+    outputs := (job_id, all_lines) :: !outputs;
+    Lwt.return (String.concat "\n" all_lines)
+  | Some old_lines ->
+    let untouched = List.remove_assoc job_id !outputs in
+    let lines = old_lines @ all_lines in
+    outputs := (job_id, lines) :: untouched;
+    Lwt.return (String.concat "\n" (lines))
 
 let http_check_command req body =
   let%lwt () = Cohttp_lwt.Body.drain_body body in
   match get_command req with
   | Error (code, msg) ->
       Server.respond_string ~status:code ~body:msg ()
-  | Ok promise -> (
-    match Lwt.state promise with
+  | Ok (job_id, p) -> (
+    let%lwt status, out, err = p in
+    match Lwt.state status with
     | Lwt.Sleep ->
+        let%lwt current_logs = handle_output job_id out err in
         Server.respond_string ~status:`Accepted
-          ~body:"Please try again in a bit, not finished processing yet" ()
+          ~body:current_logs ()
     | Lwt.Fail e ->
         Server.respond_string ~status:`Internal_server_error
           ~body:(sprintf "Something went very wrong will running command: %s." (Printexc.to_string e)) ()
-    | Lwt.Return (status, stdout, stderr) -> (
-      match status with
-      | WEXITED 0 ->
-          Server.respond_string ~status:`OK ~body:(stdout ^ stderr) ()
+    | Lwt.Return (s) -> (
+      let%lwt current_logs = handle_output job_id out err in
+      match s with
+      | Unix.WEXITED 0 ->
+          Server.respond_string ~status:`OK ~body:current_logs ()
+      | Unix.WEXITED i ->
+          Server.respond_string ~status:`Unprocessable_entity ~body:(Printf.sprintf "job failed with error code %d, logs:\n%s\n" i current_logs) ()
       | _ ->
           Server.respond_string ~status:`Unprocessable_entity
-            ~body:(stdout ^ stderr) () ) )
+            ~body:(sprintf "failure to run command. logs are \n%s\n" current_logs) () ) )
 
 let http_set_env _req body =
   let%lwt json_body = Cohttp_lwt.Body.to_string body in

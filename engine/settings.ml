@@ -25,6 +25,7 @@ type t =
   ; storage_bucket: string
   ; bucket_region: string
   ; aws_key_name: string
+  ; aws_region: string
   ; aws_security_group: string
   ; aws_subnet_id: string
   ; linux_agent_url: Uri.t
@@ -45,3 +46,11 @@ let parse_settings filepath =
         R.error_msg (Protocol_conv_yaml.Yaml.error_to_string_hum yaml_error)
   in
   R.failwith_error_msg (aux ())
+
+let key_check () =
+  match Sys.getenv_opt "MC_KEY" with
+  | Some _ ->
+      ()
+  | None ->
+      failwith "Error: The ENV variable MC_KEY isn't set and must be set."
+

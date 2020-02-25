@@ -85,13 +85,13 @@ let transfer_to_shell ~(transfer_fn : string -> [`Get | `Put] -> Uri.t)
         let uri_str =
           Uri.to_string (transfer_fn (sprintf "/%s/%s" guid first_arg) verb)
         in
-        sprintf "curl -X GET \"%s\" -o %s" uri_str second_arg
+        sprintf "curl --retry 5 -X GET \"%s\" -o %s" uri_str second_arg
     | `Put ->
         let uri_str =
           Uri.to_string
             (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) verb)
         in
-        sprintf "curl -X PUT \"%s\" --upload-file %s" uri_str first_arg
+        sprintf "curl --retry 5 -X PUT \"%s\" --upload-file %s" uri_str first_arg
   in
   transfer
 
@@ -113,7 +113,7 @@ module Runner (M : Provider) = struct
       if Node.rnode_has_keyword n Windows then
         ["dir"; "echo %username%"] |> List.map (( ^ ) "RUN ")
       else
-        [ sprintf "curl -X GET \"%s\" -o %s" uri_str "source.tar"
+        [ sprintf "curl --retry 5 -X GET \"%s\" -o %s" uri_str "source.tar"
         ; "mkdir /source"
         ; "sha256sum source.tar"
         ; "tar xf /source.tar -C /source" ]
@@ -157,11 +157,12 @@ module Runner (M : Provider) = struct
       ~console_logs =
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
     let credentials = R.get_ok creds in
+    let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
-      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https Aws_s3.Region.Us_east_1
+      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
     in
     let key = sprintf "%s/%s/console.log" guid n.name in
-    (* TODO we should retry and handle failure here. *)
+    (* TODO we should handle failure here. *)
     let%lwt _logs =
       Aws_s3_lwt.S3.retry ~endpoint ~retries:5
         ~f:(fun ~endpoint () ->
@@ -171,13 +172,13 @@ module Runner (M : Provider) = struct
     in
     Lwt.return ()
 
-  (*TODO Retry this.*)
   let store_cache ~(settings : Settings.t) ~guid ~cwd ~n =
     let%lwt key = Node.hash_of_node cwd n in
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
     let credentials = R.get_ok creds in
+    let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
-      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https Aws_s3.Region.Us_east_1
+      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
     in
     let%lwt _check =
       Aws_s3_lwt.S3.retry ~endpoint ~retries:5
@@ -193,18 +194,22 @@ module Runner (M : Provider) = struct
     let%lwt hash = Node.hash_of_node cwd n in
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
     let safe_creds = R.get_ok creds in
-    let ep =
-      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https Aws_s3.Region.Us_east_1
+    let region = Aws_s3.Region.of_string settings.bucket_region in
+    let endpoint =
+      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
     in
-    Aws_s3_lwt.S3.get ~bucket:settings.storage_bucket ~key:hash ~endpoint:ep
-      ~credentials:safe_creds ()
+    Aws_s3_lwt.S3.retry ~endpoint ~retries:5
+      ~f:(fun ~endpoint () ->
+        Aws_s3_lwt.S3.get ~bucket:settings.storage_bucket ~key:hash ~endpoint
+      ~credentials:safe_creds ()) ()
 
   let transfer_file ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) filename :
       (unit, Aws_s3_lwt.S3.error) result Lwt.t =
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
     let credentials = R.get_ok creds in
+    let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
-      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https Aws_s3.Region.Us_east_1
+      Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
     in
     let retries = 3 in
     let old_key = sprintf "%s/%s/%s" old_guid n.name filename in
@@ -307,17 +312,11 @@ module Stub : Provider = struct
     Lwt.return ()
 end
 
-let to_result = function
-  | `Ok x ->
-      Result.Ok x
-  | `Error e ->
-      Result.Error (Aws.Error.format Errors.to_string e)
-
 let ok_or_raise_aws = function
   | `Ok x ->
       x
   | `Error e ->
-      raise (Generic_AWS_Error (Aws.Error.format Errors.to_string e))
+      raise (Generic_AWS_Error (Aws.Error.format Aws_ec2.Errors_internal.to_string e))
 
 let ok_or_raise (x : (_, exn) result) =
   match x with Ok y -> y | Error e -> raise e
@@ -331,14 +330,39 @@ let get = function
       raise (No_value "tried to get a some out of an option where a none was.")
 
 module Aws : Provider = struct
-  type t = string * string
+  type t =
+    { ip_address: string
+    ; instance_id: string
+    ; settings: Settings.t
+    ; aws_key: string
+    ; aws_secret: string
+    }
 
   let aws_to_result a =
     match a with
     | `Ok x ->
         Result.Ok x
     | `Error e ->
-        R.error_msg (Aws.Error.format Errors.to_string e)
+        R.error_msg (Aws.Error.format Aws_ec2.Errors_internal.to_string e)
+
+  let make_user_data n (settings : Settings.t) =
+    let raw =
+      if Node.rnode_has_keyword n Windows then
+        [%blob "userdata_scripts/windows.txt"]
+      else [%blob "userdata_scripts/linux.txt"]
+    in
+    let uri =
+      if Node.rnode_has_keyword n Windows then settings.windows_agent_url
+      else settings.linux_agent_url
+    in
+    let models =
+      Jingoo.
+        [ ("url", Jg_types.Tstr (Uri.to_string uri))
+        ; ("key", Jg_types.Tstr (Sys.getenv "MC_KEY")) ]
+    in
+    let templated = Jingoo.Jg_template.from_string raw ~models in
+    let b64 = Base64.(encode templated) |> R.failwith_error_msg in
+    Lwt.return (String.split_on_char '=' b64 |> List.hd)
 
   let spinup (settings : Settings.t) (n : Node.real_node) : t Lwt.t =
     let%lwt () = Node.node_log n "Node Spinning Up" in
@@ -348,38 +372,31 @@ module Aws : Provider = struct
     let aws_key = creds.access_key in
     let aws_secret = creds.secret_key in
     let%lwt () = Node.node_log n "Got Credentials." in
-    let%lwt user_data =
-      let raw =
-        if Node.rnode_has_keyword n Windows then
-          [%blob "userdata_scripts/windows.txt"]
-        else [%blob "userdata_scripts/linux.txt"]
-      in
-      let uri =
-        if Node.rnode_has_keyword n Windows then settings.windows_agent_url
-        else settings.linux_agent_url
-      in
-      let models =
-        Jingoo.
-          [ ("url", Jg_types.Tstr (Uri.to_string uri))
-          ; ("key", Jg_types.Tstr (Sys.getenv "MC_KEY")) ]
-      in
-      let templated = Jingoo.Jg_template.from_string raw ~models in
-      let b64 = Base64.(encode templated) |> R.failwith_error_msg in
-      Lwt.return (String.split_on_char '=' b64 |> List.hd)
-    in
+    let%lwt user_data = make_user_data n settings in
     let instance_params =
       (*TODO We should gen an ssh key, upload it to aws and use that instead of a constant key. *)
       (*TODO Pull instance size from the config file.*)
-      Types.RunInstancesRequest.make ~image_id:n.base ~min_count:1 ~max_count:1
+      Types.RunInstancesRequest.make
+        ~image_id:n.base
+        ~min_count:1 ~max_count:1
         ~key_name:settings.aws_key_name
         ~security_group_ids:[settings.aws_security_group]
         ~instance_type:Types.InstanceType.M4_xlarge
-        ~block_device_mappings:[Types.BlockDeviceMapping.make ~device_name:"/dev/xvda" ~ebs:(Types.EbsBlockDevice.make ~volume_size:settings.disk_size ~delete_on_termination:true ()) ()]
-        ~subnet_id:settings.aws_subnet_id ~user_data ()
+        ~block_device_mappings:[
+          Types.BlockDeviceMapping.make
+            ~device_name:"/dev/xvda"
+            ~ebs:(Types.EbsBlockDevice.make
+                    ~volume_size:settings.disk_size
+                    ~delete_on_termination:true ())
+            ()]
+        ~subnet_id:settings.aws_subnet_id
+        ~user_data ()
     in
     let get_instance_id () =
       let%lwt result =
-        Aws_lwt.Runtime.run_request ~region:"us-east-1" ~access_key:aws_key
+        Aws_lwt.Runtime.run_request
+          ~region:settings.aws_region
+          ~access_key:aws_key
           ~secret_key:aws_secret
           (module RunInstances)
           instance_params
@@ -395,7 +412,7 @@ module Aws : Provider = struct
     let%lwt () = Node.node_log n "box starting, getting details about box" in
     let get_details () =
       let result =
-        Aws_lwt.Runtime.run_request ~region:"us-east-1" ~access_key:aws_key
+        Aws_lwt.Runtime.run_request ~region:settings.aws_region ~access_key:aws_key
           ~secret_key:aws_secret
           (module DescribeInstances)
           (Types.DescribeInstancesRequest.make ~instance_ids:[instance_id] ())
@@ -421,12 +438,12 @@ module Aws : Provider = struct
           Lwt.return (aws_to_result e)
     in
     (*TODO aws_retry*)
-    let%lwt instance_ip = repeat_until_ok get_details 40 in
-    let ip = R.failwith_error_msg instance_ip in
-    Lwt.return (ip, instance_id)
+    let%lwt ip = repeat_until_ok get_details 40 in
+    let ip_address = R.failwith_error_msg ip in
+    Lwt.return {ip_address; instance_id; settings; aws_key; aws_secret}
 
-  let set_env box (n : Node.real_node) =
-    let uri = Uri.of_string ("http://" ^ fst box ^ ":8000/set_env") in
+  let set_env t (n : Node.real_node) =
+    let uri = Uri.of_string ("http://" ^ t.ip_address ^ ":8000/set_env") in
     let env = `Assoc (List.map (fun (k, v) -> (k, `String v)) n.env) in
     let body = Yojson.to_string env |> Cohttp_lwt.Body.of_string in
     let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
@@ -435,9 +452,9 @@ module Aws : Provider = struct
     let%lwt () = Cohttp_lwt.Body.drain_body body in
     Lwt.return ()
 
-  let wait_until_ready box (n : Node.real_node) () =
+  let wait_until_ready t (n : Node.real_node) () =
     let%lwt () = Node.node_log n "Checking if node is up yet." in
-    let uri = Uri.of_string ("http://" ^ fst box ^ ":8000/") in
+    let uri = Uri.of_string ("http://" ^ t.ip_address ^ ":8000/") in
     match%lwt get_or_timeout ~max_request_duration:3.0 uri with
     | Result.Ok _ ->
         let%lwt () = Node.node_log n "Node is up." in
@@ -526,21 +543,21 @@ module Aws : Provider = struct
     in
     repeat_until_ok poll_agent expire_time
 
-  let runcmd transfer (box, _instance_id) (n : Node.real_node) cmd :
+  let runcmd transfer t (n : Node.real_node) cmd :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt () = Node.node_log n cmd in
     let expire_time = 12 * Node.rnode_get_expire_time n in
     match List.hd (String.split_on_char ' ' cmd) with
     | "RUN" ->
-        send_command box ~expire_time @@ String.sub cmd 4 (String.length cmd - 4)
+        send_command t.ip_address ~expire_time @@ String.sub cmd 4 (String.length cmd - 4)
     | "UPLOAD" ->
         let split_cmd = String.split_on_char ' ' cmd in
-        send_command box ~expire_time
+        send_command t.ip_address ~expire_time
         @@ transfer ~first_arg:(List.nth split_cmd 1)
              ~second_arg:(List.nth split_cmd 2) ~verb:`Put
     | "DOWNLOAD" ->
         let split_cmd = String.split_on_char ' ' cmd in
-        send_command box ~expire_time
+        send_command t.ip_address ~expire_time
         @@ transfer ~first_arg:(List.nth split_cmd 1)
              ~second_arg:(List.nth split_cmd 2) ~verb:`Get
     | _ ->
@@ -550,20 +567,21 @@ module Aws : Provider = struct
         Lwt.return
           (R.error (R.msg "Invalid Command.", "No log, invalid command."))
 
-  let spindown (_instance_ip, instance_id) (n : Node.real_node) =
+  let spindown t (n : Node.real_node) =
     let%lwt () = Node.node_log n "Node spinning down." in
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
-    let safe_creds = R.get_ok creds in
-    let aws_key = safe_creds.access_key in
-    let aws_secret = safe_creds.secret_key in
-    (*TODO aws_retry*)
-    let%lwt details =
-      Aws_lwt.Runtime.run_request ~region:"us-east-1" ~access_key:aws_key
-        ~secret_key:aws_secret
+    let details () =
+      Aws_lwt.Runtime.run_request ~region:t.settings.aws_region ~access_key:t.aws_key
+        ~secret_key:t.aws_secret
         (module TerminateInstances)
-        (Types.TerminateInstancesRequest.make ~instance_ids:[instance_id] ())
+        (Types.TerminateInstancesRequest.make ~instance_ids:[t.instance_id] ())
     in
-    let _results = ok_or_raise_aws details in
+    let aux () : (TerminateInstances.output, [> R.msg ]) result Lwt.t =
+      let%lwt d = details () in
+      Lwt.return (aws_to_result d)
+    in
+    let%lwt results = repeat_until_ok aux 10 in
+    (* TODO: we should check this. *)
+    let _r = R.failwith_error_msg results in
     Lwt.return ()
 end
 
@@ -691,13 +709,14 @@ let pre_source (settings : Settings.t) cwd guid
       |> String.concat " "
     in
     let cmd = sprintf "tar cf %s %s -C %s ." temp excludes cwd in
+    let%lwt () = Lwt_io.printl cmd in
     Lwt_process.pread
       (Lwt_process.shell cmd)
   in
   let upload_url =
     transfer_fn (sprintf "/%s/source.tar" (Uuidm.to_string guid)) `Put
   in
-  let upload_cmd = (sprintf "curl -X PUT \'%s\' --upload-file %s"
+  let upload_cmd = (sprintf "curl --retry 5 -X PUT \'%s\' --upload-file %s"
             (Uri.to_string upload_url) temp)
   in
   let%lwt _pout =
@@ -707,7 +726,7 @@ let pre_source (settings : Settings.t) cwd guid
   let%lwt () = Lwt_io.printl "Finished uploading source for agents." in
   Lwt.return @@ Ok ()
 
-let start_checks () = key_check ()
+let start_checks () = Settings.key_check ()
 
 let prune_nodes ns target_nodes =
   let node_edges = List.map Node.get_edges ns |> List.concat in
