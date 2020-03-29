@@ -89,18 +89,20 @@ let process req body =
   let%lwt tmp_file =
     get_archive gh_token gh_info.repository.full_name gh_info.head_commit.id
   in
-  let dir_name = Filename.chop_suffix tmp_file ".tar.gz" in
+  let repo_dir = Filename.chop_suffix tmp_file ".tar.gz" in
   (*TOOD: This is hacky as hell but can wait til replaced with pure OCaml tar.*)
   let cmd =
-    sprintf "mkdir %s; tar zxf %s -C %s --strip-components=1" dir_name tmp_file
-      dir_name
+    sprintf "mkdir %s; tar zxf %s -C %s --strip-components=1" repo_dir tmp_file
+      repo_dir
   in
   let%lwt _out = Lwt_process.pread (Lwt_process.shell cmd) in
   let deploy =
     String.equal gh_info.ref
       (sprintf "refs/heads/%s" gh_info.repository.master_branch)
   in
-  Lwt.async (fun () -> Engine.Runner.main dir_name false deploy []);
+  Lwt.async (fun () ->
+    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] in
+    Engine.Runner.main params);
   Lwt.return ()
 
 let handler req body =

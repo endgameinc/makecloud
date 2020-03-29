@@ -4,7 +4,8 @@ module R = Rresult.R
 open Engine.Lib
 
 let main repo_dir nocache deploy target_nodes =
-  Lwt_main.run (Engine.Runner.main repo_dir nocache deploy target_nodes)
+  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes in
+  Lwt_main.run (Engine.Runner.main params)
 
 let check repo_dir =
   let aux () =
@@ -48,10 +49,9 @@ let purge repo_dir target_hash () =
     Lwt.return ()
 
 let purge_main repo_dir target_hash =
-    Lwt_main.run ( 
+    Lwt_main.run (
         purge repo_dir target_hash ()
     )
-
 
 let check_cache_per_node (node_name : string) cwd =
   Lwt_main.run
@@ -217,7 +217,7 @@ let show_all_cache =
   let term = Term.(const show_all_cache $ make_repo_dir 0) in
   (term, info)
 
-let purge_cache = 
+let purge_cache =
     let info =
         make_info "purge-cache"
         "purges one node's cached files for build"
