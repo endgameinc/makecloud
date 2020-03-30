@@ -37,6 +37,14 @@ let change_status r status =
 let get_status r =
   List.hd r.status
 
+let make_graph r =
+  Jingoo.Jg_types.(match List.find (fun x -> match x with | Engine.Notify.(RunStart _) -> true | _ -> false) r.status with
+  | RunStart note  ->
+    let nodes = Tlist (List.map (fun x -> Tstr x) note.nodes) in
+    let edges = Tlist (List.map (fun (x, y) -> Tobj [("src", Tstr x); ("dst", Tstr y)]) note.edges) in
+    (nodes, edges)
+  | _ -> (Tlist [], Tlist []))
+
 let to_jingoo (guid, r) =
   Jingoo.Jg_types.(
     Tobj

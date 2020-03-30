@@ -157,18 +157,28 @@ let show_run_http req body =
           ret_404_http ()
       | Some r ->
           let stages = Run.stages_to_jingoo r in
+          let nodes, edges = Run.make_graph r in
           let page_content =
             Jg_template.from_string Templates.show_runs
-              ~models:[("stages", stages); ("guid", Jg_types.Tstr guid)]
+              ~models:[("stages", stages);
+                       ("guid", Jg_types.Tstr guid);
+                       ("nodes", nodes);
+                       ("edges", edges)]
           in
           let body = show_with_base page_content in
           Server.respond_string ~status:`OK ~body () )
   | Error (t, msg) ->
       Server.respond_string ~status:t ~body:msg ()
 
-let serve_timeago _req body =
+type asset = Timeago | Fullrender | Vizjs
+
+let serve_asset (asset : asset) _req body =
   let%lwt () = Cohttp_lwt.Body.drain_body body in
-  let body = [%blob "assets/timeago.min.js"] in
+  let body = match asset with
+  | Timeago -> [%blob "assets/timeago.min.js"]
+  | Fullrender -> [%blob "assets/full.render.js"]
+  | Vizjs -> [%blob "assets/viz.js"]
+  in
   Server.respond_string ~status:`OK ~body ()
 
 let http_auth api_key callback t req body =
@@ -211,7 +221,11 @@ let router t api_key _conn req body =
   | "/github_handler" ->
       Github.handler req body
   | "/assets/timeago.min.js" ->
-      serve_timeago req body
+      serve_asset Timeago req body
+  | "/assets/full.render.js" ->
+      serve_asset Fullrender req body
+  | "/assets/viz.js" ->
+      serve_asset Vizjs req body
   | _ ->
       ret_404_http ()
 
