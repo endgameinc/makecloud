@@ -14,13 +14,13 @@ let cache_command cmd =
   | Publish -> true
 
 let parse_upload cmd_string =
-  let src = List.nth cmd_string 1 in
-  let dst = List.nth cmd_string 2 in
+  let src = List.nth cmd_string 0 in
+  let dst = List.nth cmd_string 1 in
   Ok (Upload (src, dst))
 
 let parse_download cmd_string =
-  let src = List.nth cmd_string 1 in
-  let dst = List.nth cmd_string 2 in
+  let src = List.nth cmd_string 0 in
+  let dst = List.nth cmd_string 1 in
   Ok (Download (src, dst))
 
 let parse_run cmd_string =

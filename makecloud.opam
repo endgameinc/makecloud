@@ -35,6 +35,7 @@ depends: [
   "ezxmlm"
   "irmin"
   "irmin-unix"
+  "ppx_irmin"
 ]
 synopsis: "A simple build system for complex builds"
 available: [ ocaml-version >= "4.05.0" ]
