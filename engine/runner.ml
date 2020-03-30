@@ -98,7 +98,8 @@ module Runner (M : Provider_template.Provider) = struct
     (*TODO: We should handle failure here.*)
     let%lwt () = M.set_env box n in
     let%lwt () =
-      Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.StartCommands
+      let state = Notify.make_start_commands "1.1.1.1" "foobar-secret" in
+      Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key state
     in
     let%lwt result =
       Lwt_list.fold_left_s
@@ -214,6 +215,8 @@ module Runner (M : Provider_template.Provider) = struct
 
   let process_cache ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) =
     let%lwt () = Lwt_io.printl (n.color ^ "Processing cache for " ^ n.name) in
+    let key = Sys.getenv "MC_KEY" in
+    let%lwt () = Notify.send_state ~settings ~guid:new_guid ~node:(Node.Rnode n) ~key ProcessCache in
     let upload_steps = List.filter Command.cache_command n.steps in
     let%lwt transfers =
       Lwt_list.map_p
@@ -463,7 +466,9 @@ let main (params : run_parameters) =
   let key = Sys.getenv "MC_KEY" in
   (*TODO Handle failing to upload our source bundle.*)
   let () = R.get_ok pre_results in
-  let%lwt () = Notify.send_run_state ~settings ~guid ~key (Notify.make_run_start [] []) in
+  let node_names = List.map (fun x -> Node.node_to_string x) runable_nodes in
+  let edges = List.map Node.get_edges runable_nodes |> List.concat in
+  let%lwt () = Notify.send_run_state ~settings ~guid ~key (Notify.make_run_start node_names edges) in
   match%lwt
     run settings params runable_nodes transfer_fn
   with

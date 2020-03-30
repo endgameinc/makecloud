@@ -4,18 +4,32 @@ type run_start =
   { nodes : string list
   ; edges : (string * string) list } [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
-type state = StartBox | StartCommands | EndBoxSuccessful | EndBoxFailed [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
+type start_command =
+  { ip_address : string
+  ; secret_key : string } [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
+
+type state =
+  | StartBox
+  | StartCommands of start_command
+  | ProcessCache
+  | EndBoxSuccessful
+  | EndBoxFailed [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
 type run_state = RunStart of run_start | RunSuccess | RunFail | RunException [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
 let make_run_start nodes edges =
   RunStart {nodes; edges}
 
+let make_start_commands ip_address secret_key =
+  StartCommands {ip_address; secret_key}
+
 let state_name_to_string = function
   | StartBox ->
       "StartBox"
-  | StartCommands ->
+  | StartCommands _ ->
       "StartCommands"
+  | ProcessCache ->
+      "ProcessCache"
   | EndBoxSuccessful ->
       "EndBoxSuccessful"
   | EndBoxFailed ->
@@ -30,18 +44,6 @@ let run_state_name_to_string = function
       "RunFail"
   | RunException ->
       "RunException"
-
-let state_of_string = function
-  | "StartBox" ->
-      Some StartBox
-  | "StartCommands" ->
-      Some StartCommands
-  | "EndBoxSuccessful" ->
-      Some EndBoxSuccessful
-  | "EndBoxFailed" ->
-      Some EndBoxFailed
-  | _ ->
-      None
 
 let send_state ~(settings : Settings.t) ~guid ~node (state : state) ~key =
   match settings.notify_url with
