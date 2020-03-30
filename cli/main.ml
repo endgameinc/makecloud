@@ -3,8 +3,9 @@ let sprintf = Printf.sprintf
 module R = Rresult.R
 open Engine.Lib
 
-let main repo_dir nocache deploy target_nodes =
-  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes in
+let main repo_dir nocache deploy target_nodes dont_delete =
+  let dont_delete = match dont_delete with | Some x -> [x] | None -> [] in
+  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete in
   Lwt_main.run (Engine.Runner.main params)
 
 let check repo_dir =
@@ -160,6 +161,10 @@ let deploy =
   in
   Arg.(value & flag & info ["d"; "deploy"] ~doc)
 
+let dont_delete =
+  let doc = "Don't delete a specific node, likely for debugging purposes." in
+  Arg.(value & opt (some string) None & info ["dont-delete"] ~docv:"DONT_DELETE" ~doc)
+
 let make_info term_name doc =
   let man =
     [ `S Manpage.s_bugs
@@ -173,7 +178,7 @@ let invoke =
     make_info "invoke" "run the series of nodes to build a repository."
   in
   let term =
-    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes)
+    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes $ dont_delete)
   in
   (term, info)
 

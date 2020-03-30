@@ -6,11 +6,12 @@ type run_parameters =
   ; nocache : bool
   ; deploy : bool
   ; target_nodes : string list
+  ; dont_delete : string list
   ; guid : Uuidm.t }
 
-let make_params ~repo_dir ~nocache ~deploy ~target_nodes =
+let make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete =
   let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
-  { repo_dir; nocache; deploy; target_nodes; guid }
+  { repo_dir; nocache; deploy; target_nodes; guid; dont_delete }
 
 let sprintf = Printf.sprintf
 

@@ -71,7 +71,7 @@ let transfer_to_shell ~(transfer_fn : string -> [`Get | `Put] -> Uri.t)
   transfer
 
 module Runner (M : Provider_template.Provider) = struct
-  let run_node ~(settings : Settings.t) ~n
+  let run_node ~(settings : Settings.t) ~params ~n
       ~(transfer_fn : string -> [`Get | `Put] -> Uri.t) ~guid :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt box = M.spinup settings n guid in
@@ -114,7 +114,12 @@ module Runner (M : Provider_template.Provider) = struct
         (R.ok "", "")
         (List.append prep_steps n.steps)
     in
-    let%lwt () = M.spindown box n in
+    let%lwt () = if not (List.exists (String.equal n.name) params.dont_delete) then
+        M.spindown box n
+      else
+        let%lwt () = Node.node_log n (Fmt.str "NOT deleting box %s as per requested." n.name) in
+        Lwt.return ()
+    in
     match result with
     | Ok logs, old_logs ->
         let%lwt () =
@@ -246,7 +251,7 @@ module Runner (M : Provider_template.Provider) = struct
               (R.error_msg "Cache processing failed for some reason. Unusual.")
         )
     | false -> (
-        match%lwt run_node ~settings ~n ~transfer_fn ~guid with
+        match%lwt run_node ~settings ~params ~n ~transfer_fn ~guid with
         | Ok console_logs ->
             let%lwt () = Lwt_io.printl "Steps completed successfully." in
             let%lwt () = store_logs ~settings ~guid ~n ~console_logs in
