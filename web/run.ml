@@ -37,10 +37,26 @@ let change_status r status =
 let get_status r =
   List.hd r.status
 
+let get_stage r name =
+  List.find (fun x -> x.node_name = name) r.stages
+
+let stage_to_color (st : stage) =
+  match st.state with
+  | ProcessCache -> "blue"
+  | EndBoxSuccessful -> "green"
+  | EndBoxFailed -> "red"
+  | StartCommands _
+  | StartBox -> "light_green"
+
 let make_graph r =
   Jingoo.Jg_types.(match List.find (fun x -> match x with | Engine.Notify.(RunStart _) -> true | _ -> false) r.status with
   | RunStart note  ->
-    let nodes = Tlist (List.map (fun x -> Tstr x) note.nodes) in
+    let nodes = Tlist
+        (List.map (fun x ->
+             let color = get_stage r x |> stage_to_color in
+             Tobj [("name", Tstr x); ("color", Tstr color)])
+          note.nodes)
+    in
     let edges = Tlist (List.map (fun (x, y) -> Tobj [("src", Tstr x); ("dst", Tstr y)]) note.edges) in
     (nodes, edges)
   | _ -> (Tlist [], Tlist []))

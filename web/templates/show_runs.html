@@ -12,7 +12,7 @@
 
       viz.renderSVGElement('digraph {
       {%- for item in nodes -%}\
-      "{{ item }}";\
+      "{{ item.name }}" [color={{ item.color }}];\
       {% endfor -%}
       {%- for item in edges -%}\
       "{{ item.src }}" -> "{{ item.dst }}";\
