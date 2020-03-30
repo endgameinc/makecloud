@@ -24,9 +24,9 @@ let authentication api_key req =
   (* TODO Make this a real auth string taken from the commandline. *)
   match option_map (String.equal api_key) key with
   | Some true ->
-      true
+      Lwt.return true
   | _ ->
-      false
+      Lwt.return false
 
 let show_with_base (body : string) =
   Jg_template.from_string Templates.base
@@ -48,7 +48,7 @@ let show_index _req body =
   let body = show_with_base page_content in
   Server.respond_string ~status:`OK ~body ()
 
-let report_http_check req =
+let report_http_check req body =
   let uri = Request.uri req in
   let bind = R.bind in
   let%bind guid =
@@ -65,44 +65,38 @@ let report_http_check req =
     | Some i ->
         R.ok i
   in
+  let clean_json = Yojson.Safe.from_string body in
   let%bind state =
-    match Uri.get_query_param uri "state" with
-    | None ->
-        R.error (`Bad_request, "must supply a state parameter for the node.")
-    | Some i ->
-        R.ok i
-  in
-  let%bind state =
-    match Engine.Notify.state_of_string state with
-    | None ->
+    match Engine.Notify.state_of_json clean_json with
+    | Error _ ->
         R.error (`Bad_request, "must supply a valid state for the node.")
-    | Some i ->
+    | Ok i ->
         R.ok i
   in
   R.ok (guid, node_name, state)
 
-let add_event t guid new_entry =
+let add_event t guid (new_entry : Run.stage) =
   let r = !runs in
   match GuidState.find_opt guid r with
   | Some x ->
       let new_run = Run.add_stage x new_entry in
       add_run t guid new_run
   | None ->
-      let new_run = Run.create_run new_entry in
+    let new_run = Run.create_run new_entry (Engine.Notify.make_run_start [] [] )in
       add_run t guid new_run
 
 let report_http t req body =
-  let%lwt () = Cohttp_lwt.Body.drain_body body in
-  match report_http_check req with
+  let%lwt body = Cohttp_lwt.Body.to_string body in
+  match report_http_check req body with
   | Ok (guid, node_name, state) ->
-      let%lwt () = Engine.Notify.print_state guid node_name state in
+      (*let%lwt () = Engine.Notify.print_state guid node_name state in*)
       let new_event = Run.create_stage node_name state in
       let%lwt () = add_event t guid new_event in
       Server.respond_string ~status:`OK ~body:"Accepted." ()
   | Error (t, msg) ->
       Server.respond_string ~status:t ~body:msg ()
 
-let run_report_http_check req =
+let run_report_http_check req body =
   let uri = Request.uri req in
   let bind = R.bind in
   let%bind guid =
@@ -113,19 +107,8 @@ let run_report_http_check req =
         R.ok i
   in
   let name = Uri.get_query_param uri "name" in
-  let%bind state =
-    match Uri.get_query_param uri "state" with
-    | None ->
-        R.error (`Bad_request, "must supply a state parameter for the node.")
-    | Some i ->
-        R.ok i
-  in
-  let%bind state =
-    match Engine.Notify.run_state_of_string state with
-    | None ->
-        R.error (`Bad_request, "must supply a valid state for the node.")
-    | Some i ->
-        R.ok i
+  let body_json = Yojson.Safe.from_string body in
+  let%bind state = Engine.Notify.run_state_of_json body_json |> R.reword_error (fun _ -> (`Bad_request, "Error decoding run state"))
   in
   R.ok (guid, name, state)
 
@@ -135,12 +118,12 @@ let change_run_state t guid (state : Engine.Notify.run_state) =
     let new_run = Run.change_status x state in
     add_run t guid new_run
   | None ->
-    let new_run = Run.create_run_init () in
+    let new_run = Run.create_run_init state () in
     add_run t guid new_run
 
 let run_report_http t req body =
-  let%lwt () = Cohttp_lwt.Body.drain_body body in
-  match run_report_http_check req with
+  let%lwt body = Cohttp_lwt.Body.to_string body in
+  match run_report_http_check req body with
   | Ok (guid, _name, state) ->
       let%lwt () = Engine.Notify.print_run_state guid state in
       let%lwt () = change_run_state t guid state in
@@ -189,7 +172,7 @@ let serve_timeago _req body =
   Server.respond_string ~status:`OK ~body ()
 
 let http_auth api_key callback t req body =
-  match authentication api_key req with
+  match%lwt authentication api_key req with
   | true ->
       callback t req body
   | false ->

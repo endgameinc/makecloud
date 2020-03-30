@@ -1,6 +1,6 @@
 (library
  (name engine)
- (libraries jingoo lwt.unix cmdliner yaml.unix aws-ec2 aws-lwt aws-s3-lwt rresult uuidm digestif astring ppx_protocol_conv_yaml)
+ (libraries jingoo lwt.unix cmdliner yaml.unix aws-ec2 aws-lwt aws-s3-lwt rresult uuidm digestif astring ppx_protocol_conv_yaml irmin-unix)
  (preprocessor_deps "userdata_scripts/linux.txt" "userdata_scripts/windows.txt")
- (preprocess (pps lwt_ppx ppx_defer ocaml-monadic ppx_protocol_conv_yaml ppx_protocol_conv ppx_deriving.show ppx_deriving.eq ppx_blob)))
+ (preprocess (pps lwt_ppx ppx_defer ocaml-monadic ppx_protocol_conv_yaml ppx_protocol_conv ppx_deriving.show ppx_deriving.eq ppx_blob ppx_irmin)))
 

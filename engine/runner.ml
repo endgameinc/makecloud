@@ -463,7 +463,7 @@ let main (params : run_parameters) =
   let key = Sys.getenv "MC_KEY" in
   (*TODO Handle failing to upload our source bundle.*)
   let () = R.get_ok pre_results in
-  let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunStart in
+  let%lwt () = Notify.send_run_state ~settings ~guid ~key (Notify.make_run_start [] []) in
   match%lwt
     run settings params runable_nodes transfer_fn
   with
