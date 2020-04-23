@@ -111,7 +111,13 @@ module Runner (M : Provider) = struct
     (*TODO: Get put in a blob ppx that loads from a file.*)
     let prep_steps =
       if Node.rnode_has_keyword n Windows then
-        ["dir"; "echo %username%"] |> List.map (( ^ ) "RUN ")
+        ["curl -h"
+        ;"tar -h"
+        ;sprintf "powershell -command ' Invoke-WebRequest \"%s\" -OutFile \"C:\source.zip\"'" uri_str
+        ;"powershell -command 'New-Item C:\source -ItemType \"directory\"'"
+        ;"dir C:\\"
+        ;"tar xf C:\source.tar -C C:\source"]
+         |> List.map (( ^ ) "RUN ")
       else
         [ sprintf "curl -X GET \"%s\" -o %s" uri_str "source.tar"
         ; "mkdir /source"

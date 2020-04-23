@@ -1,5 +1,6 @@
 
 <powershell>
+echo "Running makecloud install script."
 Invoke-WebRequest "{{ url }}" -OutFile "C:\agent.zip"
 Expand-Archive 'C:\agent.zip' 'C:\agent\'
 Set-NetFirewallProfile -Profile Domain,Public,Private -Enabled False
