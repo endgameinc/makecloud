@@ -1,6 +1,7 @@
 module R = Rresult.R
 open Jingoo
 open Cohttp_lwt_unix
+module Run_store = Irmin_unix.Git.FS.KV(Run.Run)
 
 type state = (float * string) list
 
@@ -30,6 +31,11 @@ let authentication api_key req =
 let show_with_base (body : string) =
   Jg_template.from_string Templates.base
     ~models:[("content", Jg_types.Tstr body)]
+
+let add_run store guid run =
+  runs := GuidState.add guid run !runs;
+  let info = Irmin_unix.info "added %s" guid in
+  Run_store.set_exn store [guid] run ~info
 
 let show_index _req body =
   let%lwt () = Cohttp_lwt.Body.drain_body body in
@@ -75,21 +81,23 @@ let report_http_check req =
   in
   R.ok (guid, node_name, state)
 
-let add_event guid new_entry =
+let add_event t guid new_entry =
   let r = !runs in
   match GuidState.find_opt guid r with
   | Some x ->
-      GuidState.add guid (Run.add_stage x new_entry) r
+      let new_run = Run.add_stage x new_entry in
+      add_run t guid new_run
   | None ->
-      GuidState.add guid (Run.create_run new_entry) r
+      let new_run = Run.create_run new_entry in
+      add_run t guid new_run
 
-let report_http req body =
+let report_http t req body =
   let%lwt () = Cohttp_lwt.Body.drain_body body in
   match report_http_check req with
   | Ok (guid, node_name, state) ->
       let%lwt () = Engine.Notify.print_state guid node_name state in
       let new_event = Run.create_stage node_name state in
-      runs := add_event guid new_event ;
+      let%lwt () = add_event t guid new_event in
       Server.respond_string ~status:`OK ~body:"Accepted." ()
   | Error (t, msg) ->
       Server.respond_string ~status:t ~body:msg ()
@@ -121,20 +129,21 @@ let run_report_http_check req =
   in
   R.ok (guid, name, state)
 
-let change_run_state guid (state : Engine.Notify.run_state) =
-  let r = !runs in
-  match GuidState.find_opt guid r with
+let change_run_state t guid (state : Engine.Notify.run_state) =
+  match GuidState.find_opt guid !runs with
   | Some x ->
-      GuidState.add guid (Run.change_status x state) r
+    let new_run = Run.change_status x state in
+    add_run t guid new_run
   | None ->
-      GuidState.add guid (Run.create_run_init ()) r
+    let new_run = Run.create_run_init () in
+    add_run t guid new_run
 
-let run_report_http req body =
+let run_report_http t req body =
   let%lwt () = Cohttp_lwt.Body.drain_body body in
   match run_report_http_check req with
   | Ok (guid, _name, state) ->
       let%lwt () = Engine.Notify.print_run_state guid state in
-      runs := change_run_state guid state ;
+      let%lwt () = change_run_state t guid state in
       Server.respond_string ~status:`OK ~body:"Accepted." ()
   | Error (t, msg) ->
       Server.respond_string ~status:t ~body:msg ()
@@ -179,26 +188,43 @@ let serve_timeago _req body =
   let body = [%blob "assets/timeago.min.js"] in
   Server.respond_string ~status:`OK ~body ()
 
-let http_auth api_key callback req body =
+let http_auth api_key callback t req body =
   match authentication api_key req with
   | true ->
-      callback req body
+      callback t req body
   | false ->
+      let%lwt () = Lwt_io.printl "Error: Request rejected due to incorrect api key." in
       Server.respond_string ~status:`Unauthorized ~body:"incorrect api key\n"
         ()
 
-let router api_key _conn req body =
+let logs_request req =
+  let time = Ptime_clock.now () in
+  let time_pp = match Ptime_clock.current_tz_offset_s () with
+  | Some tz_offset_s -> Ptime.pp_human ~tz_offset_s ()
+  | None -> Ptime.pp
+  in
+  Format.asprintf "[%a] %a" time_pp time Request.pp_hum req
+
+let key_check () =
+  match Sys.getenv_opt "MC_KEY" with
+  | Some _ ->
+      ()
+  | None ->
+      failwith "Error: The ENV variable MC_KEY isn't set and must be set."
+
+let router t api_key _conn req body =
   let uri = Cohttp.Request.uri req in
   let auth = http_auth api_key in
+  (*let%lwt () = Lwt_io.printl (logs_request req) in*)
   match Uri.path uri with
   | "/" ->
       show_index req body
   | "/show_run" ->
       show_run_http req body
   | "/report" ->
-      auth report_http req body
+      auth report_http t req body
   | "/run_report" ->
-      auth run_report_http req body
+      auth run_report_http t req body
   | "/github_handler" ->
       Github.handler req body
   | "/assets/timeago.min.js" ->
@@ -206,16 +232,32 @@ let router api_key _conn req body =
   | _ ->
       ret_404_http ()
 
+let load_data t =
+  let%lwt keys = Run_store.list t [] in
+  (Lwt_list.iter_s (fun (step, data) -> match data with
+       | `Contents ->
+         (match%lwt Run_store.find t [step] with
+          | Some run ->
+            runs := GuidState.add step run !runs;
+            Lwt_io.printl (Printf.sprintf "Found item for %s" step)
+          | None -> Lwt_io.printl (Printf.sprintf "Error: No item found for %s" step))
+       | `Node -> Lwt.return_unit)
+      keys)
+
 let server api_key =
   let () = Engine.Lib.key_check () in
-  Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:(router api_key) ())
+  let config = Irmin_fs.config "mc_datastore" in
+  let%lwt repo = Run_store.Repo.v config in
+  let%lwt tree = Run_store.master repo in
+  let%lwt () = load_data tree in
+  Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:(router tree api_key) ())
 
 let main api_key = Lwt_main.run (server api_key)
 
 open Cmdliner
 
 let auth_cli p =
-  let doc = "Path to the repository to process." in
+  let doc = "key for authentication." in
   Arg.(value & pos p string "." & info [] ~docv:"MC_KEY" ~doc)
 
 let main_t = Term.(const main $ auth_cli 0)
