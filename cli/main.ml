@@ -3,8 +3,10 @@ let sprintf = Printf.sprintf
 module R = Rresult.R
 open Engine.Lib
 
-let main repo_dir nocache deploy target_nodes =
-  Lwt_main.run (Engine.Runner.main repo_dir nocache deploy target_nodes)
+let main repo_dir nocache deploy target_nodes dont_delete =
+  let dont_delete = match dont_delete with | Some x -> [x] | None -> [] in
+  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete in
+  Lwt_main.run (Engine.Runner.main params)
 
 let check repo_dir =
   let aux () =
@@ -48,10 +50,9 @@ let purge repo_dir target_hash () =
     Lwt.return ()
 
 let purge_main repo_dir target_hash =
-    Lwt_main.run ( 
+    Lwt_main.run (
         purge repo_dir target_hash ()
     )
-
 
 let check_cache_per_node (node_name : string) cwd =
   Lwt_main.run
@@ -160,6 +161,10 @@ let deploy =
   in
   Arg.(value & flag & info ["d"; "deploy"] ~doc)
 
+let dont_delete =
+  let doc = "Don't delete a specific node, likely for debugging purposes." in
+  Arg.(value & opt (some string) None & info ["dont-delete"] ~docv:"DONT_DELETE" ~doc)
+
 let make_info term_name doc =
   let man =
     [ `S Manpage.s_bugs
@@ -173,7 +178,7 @@ let invoke =
     make_info "invoke" "run the series of nodes to build a repository."
   in
   let term =
-    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes)
+    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes $ dont_delete)
   in
   (term, info)
 
@@ -217,7 +222,7 @@ let show_all_cache =
   let term = Term.(const show_all_cache $ make_repo_dir 0) in
   (term, info)
 
-let purge_cache = 
+let purge_cache =
     let info =
         make_info "purge-cache"
         "purges one node's cached files for build"

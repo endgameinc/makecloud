@@ -1,8 +1,28 @@
 <section class="section">
-    <div class="container">
-      <h1 class="title">
-        Makecloud - Show Run {{ item.guid }}
-      </h1>
+  <div class="container">
+    <h1 class="title">
+      Makecloud - Show Run {{ item.guid }}
+    </h1>
+    <div class="container" id="run-display">
+      <script src="/assets/viz.js"></script>
+      <script src="/assets/full.render.js"></script>
+      <script>
+
+      var viz = new Viz();
+
+      viz.renderSVGElement('digraph {
+      {%- for item in nodes -%}\
+      "{{ item.name }}" [color={{ item.color }}];\
+      {% endfor -%}
+      {%- for item in edges -%}\
+      "{{ item.src }}" -> "{{ item.dst }}";\
+      {% endfor -%}}')
+        .then(function(element) {
+        document.getElementById("run-display").appendChild(element);
+      });
+
+      </script>
+    </div>
     {%- for item in stages -%}
     <div class="content columns">
       <div class="column">
@@ -16,5 +36,5 @@
       </div>
     </div>
     {% endfor -%}
-    </div>
+  </div>
 </section>

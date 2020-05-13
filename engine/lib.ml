@@ -1,6 +1,18 @@
 open Astring
 module R = Rresult.R
 
+type run_parameters =
+  { repo_dir : string
+  ; nocache : bool
+  ; deploy : bool
+  ; target_nodes : string list
+  ; dont_delete : string list
+  ; guid : Uuidm.t }
+
+let make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete =
+  let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
+  { repo_dir; nocache; deploy; target_nodes; guid; dont_delete }
+
 let sprintf = Printf.sprintf
 
 let get_assoc_list x =
@@ -101,6 +113,9 @@ let rec repeat_until_ok f c =
           let%lwt _test = Lwt_unix.sleep 5.0 in
           repeat_until_ok f (c - 1) )
 
+let ok_or_raise (x : (_, exn) result) =
+  match x with Ok y -> y | Error e -> raise e
+
 (* stolen from extractor *)
 let run_command ~timeout ~command =
   Lwt_process.with_process_full ~timeout command (fun p ->
@@ -116,3 +131,6 @@ let key_check () =
       ()
   | None ->
       failwith "Error: The ENV variable MC_KEY isn't set and must be set."
+
+(*TODO These don't need to be polymophic*)
+type verb = [`Get | `Put]

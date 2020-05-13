@@ -1,4 +1,3 @@
-open Aws_ec2
 open Lib
 
 exception Agent_Unauthorized of string
@@ -6,9 +5,6 @@ exception Agent_Unauthorized of string
 exception Generic_AWS_Error of string
 
 exception Incorrect_Time_Format of string
-
-(*TODO These don't need to be polymophic*)
-type verb = [`Get | `Put]
 
 let verb_to_string (verb : [`Get | `Put]) =
   match verb with `Get -> "GET" | `Put -> "PUT"
@@ -53,27 +49,6 @@ let parse_configs config_list : (Node.node list, [> R.msg]) result =
   let flattened_roots = List.concat cleaned_roots in
   result_fold Node.make_node [] flattened_roots
 
-module type Provider = sig
-  type t
-
-  (*TODO: Investigate if we can bring Node.real_node into t*)
-  val spinup : Settings.t -> Node.real_node -> t Lwt.t
-
-  val set_env : t -> Node.real_node -> unit Lwt.t
-
-  val wait_until_ready : t -> Node.real_node -> unit -> unit option Lwt.t
-
-  (*TODO: Commands need a type, really really need a type.*)
-  val runcmd :
-       (first_arg:string -> second_arg:string -> verb:verb -> string)
-    -> t
-    -> Node.real_node
-    -> string
-    -> (string, [> R.msg] * string) result Lwt.t
-
-  val spindown : t -> Node.real_node -> unit Lwt.t
-end
-
 (* TODO: this is bad and should be rewritten but I don't have a better design. *)
 (* download s3 local *)
 (* upload local s3 *)
@@ -95,11 +70,11 @@ let transfer_to_shell ~(transfer_fn : string -> [`Get | `Put] -> Uri.t)
   in
   transfer
 
-module Runner (M : Provider) = struct
-  let run_node ~(settings : Settings.t) ~n
+module Runner (M : Provider_template.Provider) = struct
+  let run_node ~(settings : Settings.t) ~params ~n
       ~(transfer_fn : string -> [`Get | `Put] -> Uri.t) ~guid :
       (string, [> R.msg] * string) result Lwt.t =
-    let%lwt box = M.spinup settings n in
+    let%lwt box = M.spinup settings n guid in
     let key = Sys.getenv "MC_KEY" in
     let%lwt () =
       Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.StartBox
@@ -120,31 +95,37 @@ module Runner (M : Provider) = struct
          |> List.map (( ^ ) "RUN ")
       else
         [ sprintf "curl --retry 5 -X GET \"%s\" -o %s" uri_str "source.tar"
-        ; "mkdir /source"
+        ; "rm -rf /source; mkdir /source"
         ; "sha256sum source.tar"
         ; "tar xf /source.tar -C /source" ]
-        |> List.map (( ^ ) "RUN ")
+        |> List.map (fun x -> Command.(Run x))
     in
     let transfer = transfer_to_shell ~transfer_fn ~n ~guid in
     (*TODO: We should handle failure here.*)
     let%lwt () = M.set_env box n in
     let%lwt () =
-      Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.StartCommands
+      let state = Notify.make_start_commands "1.1.1.1" "foobar-secret" in
+      Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key state
     in
     let%lwt result =
       Lwt_list.fold_left_s
         (fun a x ->
           match a with
           | Ok logs, old_logs ->
-              let%lwt r = M.runcmd transfer box n x in
+              let%lwt r = M.runcmd transfer box settings n guid x in
               (* TODO: Use Buffer module to accumulate strings *)
-              Lwt.return (r, old_logs ^ logs ^ x ^ "\n")
+              Lwt.return (r, old_logs ^ logs ^ (Command.to_string x) ^ "\n")
           | Error (err, logs), old_logs ->
               Lwt.return (Error (err, ""), old_logs ^ logs))
         (R.ok "", "")
         (List.append prep_steps n.steps)
     in
-    let%lwt () = M.spindown box n in
+    let%lwt () = if not (List.exists (String.equal n.name) params.dont_delete) then
+        M.spindown box n
+      else
+        let%lwt () = Node.node_log n (Fmt.str "NOT deleting box %s as per requested." n.name) in
+        Lwt.return ()
+    in
     match result with
     | Ok logs, old_logs ->
         let%lwt () =
@@ -195,7 +176,6 @@ module Runner (M : Provider) = struct
     in
     Lwt.return ()
 
-  (*TODO Retry this.*)
   let check_cache ~(settings : Settings.t) ~cwd ~n =
     let%lwt hash = Node.hash_of_node cwd n in
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
@@ -246,29 +226,26 @@ module Runner (M : Provider) = struct
 
   let process_cache ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) =
     let%lwt () = Lwt_io.printl (n.color ^ "Processing cache for " ^ n.name) in
-    let cmd_filter x =
-      String.split_on_char ' ' x |> List.hd |> String.equal "UPLOAD"
-    in
-    let upload_steps = List.filter cmd_filter n.steps in
+    let key = Sys.getenv "MC_KEY" in
+    let%lwt () = Notify.send_state ~settings ~guid:new_guid ~node:(Node.Rnode n) ~key ProcessCache in
+    let upload_steps = List.filter Command.cache_command n.steps in
     let%lwt transfers =
       Lwt_list.map_p
         (transfer_file ~settings ~old_guid ~new_guid ~n)
-        (List.map
-           (fun x -> List.nth (String.split_on_char ' ' x) 2)
-           upload_steps)
+        (List.map Command.src_files upload_steps |> List.concat)
     in
     Lwt.return
       (List.filter
          (fun x -> match x with Error _ -> true | Ok _ -> false)
          transfers)
 
-  let invoke settings cwd guid (n : Node.real_node)
-      (transfer_fn : string -> [`Get | `Put] -> Uri.t) nocache :
+  let invoke settings params (n : Node.real_node)
+      (transfer_fn : string -> [`Get | `Put] -> Uri.t) :
       (bool, [> R.msg]) result Lwt.t =
     let is_cachable = Node.is_node_cachable n in
-    let%lwt cache_status = check_cache ~settings ~cwd ~n in
-    let guid = Uuidm.to_string guid in
-    match is_cachable && R.is_ok cache_status && not nocache with
+    let%lwt cache_status = check_cache ~settings ~cwd:params.repo_dir ~n in
+    let guid = Uuidm.to_string params.guid in
+    match is_cachable && R.is_ok cache_status && not params.nocache with
     | true -> (
         let cache_guid = R.get_ok cache_status in
         match%lwt process_cache ~settings ~old_guid:cache_guid ~new_guid:guid ~n with
@@ -280,42 +257,16 @@ module Runner (M : Provider) = struct
               (R.error_msg "Cache processing failed for some reason. Unusual.")
         )
     | false -> (
-        match%lwt run_node ~settings ~n ~transfer_fn ~guid with
+        match%lwt run_node ~settings ~params ~n ~transfer_fn ~guid with
         | Ok console_logs ->
             let%lwt () = Lwt_io.printl "Steps completed successfully." in
             let%lwt () = store_logs ~settings ~guid ~n ~console_logs in
-            let%lwt () = store_cache ~settings ~guid ~cwd ~n in
+            let%lwt () = store_cache ~settings ~guid ~cwd:params.repo_dir ~n in
             Lwt.return (R.ok false)
         | Error (msg, console_logs) ->
             let%lwt () = Lwt_io.printl "Steps didn't complete successfully." in
             let%lwt () = store_logs ~settings ~guid ~n ~console_logs in
             Lwt.return (R.error msg) )
-end
-
-module Stub : Provider = struct
-  type t = unit
-
-  let spinup _settings (n : Node.real_node) : t Lwt.t =
-    let%lwt () =
-      Lwt_io.printl ("[STUB]" ^ "[" ^ n.name ^ "]" ^ "Node Spinning Up")
-    in
-    Lwt.return ()
-
-  let wait_until_ready _box (n : Node.real_node) () =
-    let _ = Lwt_io.printl ("[STUB]" ^ "[" ^ n.name ^ "]" ^ " Ready!") in
-    Lwt.return (Some ())
-
-  let set_env _box _n = Lwt.return ()
-
-  let runcmd _transfer_fn _box (n : Node.real_node) cmd =
-    let _ = Lwt_io.printl ("[STUB]" ^ "[" ^ n.name ^ "]" ^ cmd) in
-    Lwt.return (R.ok "")
-
-  let spindown _ (n : Node.real_node) =
-    let _ =
-      Lwt_io.printl ("[STUB]" ^ "[" ^ n.name ^ "]" ^ "Node Spinning Down")
-    in
-    Lwt.return ()
 end
 
 let ok_or_raise_aws = function
@@ -324,278 +275,13 @@ let ok_or_raise_aws = function
   | `Error e ->
       raise (Generic_AWS_Error (Aws.Error.format Aws_ec2.Errors_internal.to_string e))
 
-let ok_or_raise (x : (_, exn) result) =
-  match x with Ok y -> y | Error e -> raise e
-
 exception No_value of string
 
-let get = function
-  | Some x ->
-      x
-  | None ->
-      raise (No_value "tried to get a some out of an option where a none was.")
+module StubRunner = Runner (Provider_stub.Stub)
+module AwsRunner = Runner (Provider_aws.Aws)
 
-module Aws : Provider = struct
-  type t =
-    { ip_address: string
-    ; instance_id: string
-    ; settings: Settings.t
-    ; aws_key: string
-    ; aws_secret: string
-    }
-
-  let aws_to_result a =
-    match a with
-    | `Ok x ->
-        Result.Ok x
-    | `Error e ->
-        R.error_msg (Aws.Error.format Aws_ec2.Errors_internal.to_string e)
-
-  let make_user_data n (settings : Settings.t) =
-    let raw =
-      if Node.rnode_has_keyword n Windows then
-        [%blob "userdata_scripts/windows.txt"]
-      else [%blob "userdata_scripts/linux.txt"]
-    in
-    let uri =
-      if Node.rnode_has_keyword n Windows then settings.windows_agent_url
-      else settings.linux_agent_url
-    in
-    let models =
-      Jingoo.
-        [ ("url", Jg_types.Tstr (Uri.to_string uri))
-        ; ("key", Jg_types.Tstr (Sys.getenv "MC_KEY")) ]
-    in
-    let templated = Jingoo.Jg_template.from_string raw ~models in
-    let b64 = Base64.(encode templated) |> R.failwith_error_msg in
-    Lwt.return (String.split_on_char '=' b64 |> List.hd)
-
-  let spinup (settings : Settings.t) (n : Node.real_node) : t Lwt.t =
-    let%lwt () = Node.node_log n "Node Spinning Up" in
-    (* TODO improve this to new cred method? maybe pass creds around *)
-    let%lwt unsafe_creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
-    let creds = unsafe_creds |> ok_or_raise in
-    let aws_key = creds.access_key in
-    let aws_secret = creds.secret_key in
-    let%lwt () = Node.node_log n "Got Credentials." in
-    let%lwt user_data = make_user_data n settings in
-    let instance_params =
-      (*TODO We should gen an ssh key, upload it to aws and use that instead of a constant key. *)
-      (*TODO Pull instance size from the config file.*)
-      Types.RunInstancesRequest.make
-        ~image_id:n.base
-        ~min_count:1 ~max_count:1
-        ~key_name:settings.aws_key_name
-        ~security_group_ids:[settings.aws_security_group]
-        ~instance_type:Types.InstanceType.M4_xlarge
-        ~block_device_mappings:[
-          Types.BlockDeviceMapping.make
-            ~device_name:"/dev/xvda"
-            ~ebs:(Types.EbsBlockDevice.make
-                    ~volume_size:settings.disk_size
-                    ~delete_on_termination:true ())
-            ()]
-        ~subnet_id:settings.aws_subnet_id
-        ~user_data ()
-    in
-    let get_instance_id () =
-      let%lwt result =
-        Aws_lwt.Runtime.run_request
-          ~region:settings.aws_region
-          ~access_key:aws_key
-          ~secret_key:aws_secret
-          (module RunInstances)
-          instance_params
-      in
-      Lwt.return (result |> aws_to_result)
-    in
-    (*TODO aws_retry*)
-    let%lwt i = repeat_until_ok get_instance_id 5 in
-    let instance_id =
-      ((R.failwith_error_msg i).instances |> List.hd).instance_id
-    in
-    let%lwt () = Node.node_log n (sprintf "instance id: %s" instance_id) in
-    let%lwt () = Node.node_log n "box starting, getting details about box" in
-    let get_details () =
-      let result =
-        Aws_lwt.Runtime.run_request ~region:settings.aws_region ~access_key:aws_key
-          ~secret_key:aws_secret
-          (module DescribeInstances)
-          (Types.DescribeInstancesRequest.make ~instance_ids:[instance_id] ())
-      in
-      let%lwt () = Node.node_log n "Trying to aquire the IP now." in
-      let%lwt r = result in
-      match (r, settings.only_public_ip) with
-      | `Ok
-          { reservations=
-              {instances= {public_ip_address= Some ip; _} :: _; _} :: _
-          ; _ }, true ->
-          let%lwt () = Node.node_log n (sprintf "ip addr: %s" ip) in
-          Lwt.return_ok ip
-      | `Ok
-          { reservations=
-              {instances= {private_ip_address= Some ip; _} :: _; _} :: _
-          ; _ }, false ->
-          let%lwt () = Node.node_log n (sprintf "ip addr: %s" ip) in
-          Lwt.return_ok ip
-      | `Ok _, _ ->
-          Lwt.return (R.error_msg "Can't get an ip for this box yet.")
-      | `Error _ as e, _ ->
-          Lwt.return (aws_to_result e)
-    in
-    (*TODO aws_retry*)
-    let%lwt ip = repeat_until_ok get_details 40 in
-    let ip_address = R.failwith_error_msg ip in
-    Lwt.return {ip_address; instance_id; settings; aws_key; aws_secret}
-
-  let set_env t (n : Node.real_node) =
-    let uri = Uri.of_string ("http://" ^ t.ip_address ^ ":8000/set_env") in
-    let env = `Assoc (List.map (fun (k, v) -> (k, `String v)) n.env) in
-    let body = Yojson.to_string env |> Cohttp_lwt.Body.of_string in
-    let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
-    (*TODO cohttp_retry & drain the body/consume it.*)
-    let%lwt _resp, body = Cohttp_lwt_unix.Client.put uri ~headers ~body in
-    let%lwt () = Cohttp_lwt.Body.drain_body body in
-    Lwt.return ()
-
-  let wait_until_ready t (n : Node.real_node) () =
-    let%lwt () = Node.node_log n "Checking if node is up yet." in
-    let uri = Uri.of_string ("http://" ^ t.ip_address ^ ":8000/") in
-    match%lwt get_or_timeout ~max_request_duration:3.0 uri with
-    | Result.Ok _ ->
-        let%lwt () = Node.node_log n "Node is up." in
-        Lwt.return (Some ())
-    | exception _e ->
-        Lwt.return None
-    | _ ->
-        Lwt.return None
-
-  (*TODO Please no more string types.*)
-  let send_command box s ~expire_time : (string, [> R.msg] * string) result Lwt.t =
-    let uri = Uri.of_string ("http://" ^ box ^ ":8000/command") in
-    let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
-    let rec repeat_until_ok f c =
-      match c with
-      | 0 ->
-          Lwt.return
-            (R.error
-               ( R.msg "Couldn't get a successful call for repeat_until_ok"
-               , "No log, couldn't get a sucess after repeat." ))
-      | _ -> (
-          match%lwt f () with
-          | Error ("command failed on agent.", err_output) ->
-              Lwt.return (R.error (R.msg "command failed.", err_output))
-          | Ok x ->
-              Lwt.return (R.ok x)
-          | exception Unix.Unix_error (Unix.ETIMEDOUT, "connect", "") ->
-              let%lwt _test = Lwt_unix.sleep 5.0 in
-              repeat_until_ok f (c - 1)
-          | Error _ ->
-              let%lwt _test = Lwt_unix.sleep 5.0 in
-              repeat_until_ok f (c - 1) )
-    in
-    let send_command () =
-      let body = Cohttp_lwt.Body.of_string s in
-      let%lwt resp, body = Cohttp_lwt_unix.Client.put uri ~headers ~body in
-      let%lwt body = Cohttp_lwt.Body.to_string body in
-      let process_response x =
-        match Cohttp.Response.status x with
-        | `Accepted | `OK ->
-            Lwt.return (R.ok (resp, body))
-        | `Unauthorized ->
-            Lwt.return
-              (R.error
-                 ( "Unauthorized"
-                 , "Unauthorized to talk to agent, this really shouldn't \
-                    happen." ))
-        | _ ->
-            Lwt.return
-              (R.error
-                 ( "Unknown error."
-                 , "Unknown error, command was unable to execute." ))
-      in
-      process_response resp
-    in
-    let%lwt _resp, body =
-      match%lwt repeat_until_ok send_command 10 with
-      | Ok (r, b) ->
-          Lwt.return (r, b)
-      | Error _ ->
-          failwith
-            "Can't talk to an agent, this probably means the agent failed to \
-             install."
-    in
-    (*TODO cohttp_retry*)
-    let poll_agent () =
-      let check_uri =
-        Uri.of_string ("http://" ^ box ^ ":8000/check_command")
-      in
-      let check_uri = Uri.add_query_param' check_uri ("id", body) in
-      match%lwt Cohttp_lwt_unix.Client.get check_uri ~headers with
-      | exception Unix.Unix_error _ ->
-          Lwt.return (R.error ("failed to connect.", ""))
-      | resp, body -> (
-          let%lwt output = Cohttp_lwt.Body.to_string body in
-          let%lwt () = Lwt_io.printl output in
-          match Cohttp.Response.status resp with
-          | `Accepted ->
-              Lwt.return (R.error ("still waiting.", ""))
-          | `OK ->
-              Lwt.return (R.ok output)
-          | `Unprocessable_entity ->
-              Lwt.return (R.error ("command failed on agent.", output))
-          | _ ->
-              Lwt.return (R.error ("some other error.", "some other error.")) )
-    in
-    repeat_until_ok poll_agent expire_time
-
-  let runcmd transfer t (n : Node.real_node) cmd :
-      (string, [> R.msg] * string) result Lwt.t =
-    let%lwt () = Node.node_log n cmd in
-    let expire_time = 12 * Node.rnode_get_expire_time n in
-    match List.hd (String.split_on_char ' ' cmd) with
-    | "RUN" ->
-        send_command t.ip_address ~expire_time @@ String.sub cmd 4 (String.length cmd - 4)
-    | "UPLOAD" ->
-        let split_cmd = String.split_on_char ' ' cmd in
-        send_command t.ip_address ~expire_time
-        @@ transfer ~first_arg:(List.nth split_cmd 1)
-             ~second_arg:(List.nth split_cmd 2) ~verb:`Put
-    | "DOWNLOAD" ->
-        let split_cmd = String.split_on_char ' ' cmd in
-        send_command t.ip_address ~expire_time
-        @@ transfer ~first_arg:(List.nth split_cmd 1)
-             ~second_arg:(List.nth split_cmd 2) ~verb:`Get
-    | _ ->
-        let%lwt () =
-          Node.node_log n "[ERROR] Invalid Command. Please try again."
-        in
-        Lwt.return
-          (R.error (R.msg "Invalid Command.", "No log, invalid command."))
-
-  let spindown t (n : Node.real_node) =
-    let%lwt () = Node.node_log n "Node spinning down." in
-    let details () =
-      Aws_lwt.Runtime.run_request ~region:t.settings.aws_region ~access_key:t.aws_key
-        ~secret_key:t.aws_secret
-        (module TerminateInstances)
-        (Types.TerminateInstancesRequest.make ~instance_ids:[t.instance_id] ())
-    in
-    let aux () : (TerminateInstances.output, [> R.msg ]) result Lwt.t =
-      let%lwt d = details () in
-      Lwt.return (aws_to_result d)
-    in
-    let%lwt results = repeat_until_ok aux 10 in
-    (* TODO: we should check this. *)
-    let _r = R.failwith_error_msg results in
-    Lwt.return ()
-end
-
-module StubRunner = Runner (Stub)
-module AwsRunner = Runner (Aws)
-
-let invoke_node settings cwd guid node
-    (transfer_fn : string -> [`Get | `Put] -> Uri.t) nocache deploy =
+let invoke_node settings params node
+    (transfer_fn : string -> [`Get | `Put] -> Uri.t) =
   let run node =
     match node with
     | Node.Snode _ ->
@@ -605,9 +291,9 @@ let invoke_node settings cwd guid node
         Lwt.return (R.ok true)
         (*TODO Handle other hypervisors.*)
     | Node.Rnode r ->
-        AwsRunner.invoke settings cwd guid r transfer_fn nocache
+        AwsRunner.invoke settings params r transfer_fn
   in
-  match Node.node_has_keyword node Deploy && not deploy with
+  match Node.node_has_keyword node Deploy && not params.deploy with
   | true ->
       let%lwt () =
         Lwt_io.printl
@@ -620,8 +306,8 @@ let invoke_node settings cwd guid node
 
 (* TODO: Return a record with label fields for nodes. *)
 (*TODO: Add a settings type here to reduce parameters.*)
-let run settings cwd guid node_list
-    (transfer_fn : string -> [`Get | `Put] -> Uri.t) nocache deploy =
+let run settings params node_list
+    (transfer_fn : string -> [`Get | `Put] -> Uri.t) =
   let rec aux complete_nodes failed_nodes
       (running_nodes : ((bool, [> R.msg]) result * Node.node) Lwt.t list)
       todo_nodes first_run =
@@ -665,7 +351,7 @@ let run settings cwd guid node_list
           List.map
             (fun n ->
               let%lwt r =
-                invoke_node settings cwd guid n transfer_fn nocache deploy
+                invoke_node settings params n transfer_fn
               in
               Lwt.return (r, n))
             runnable
@@ -765,47 +451,49 @@ let prune_nodes ns target_nodes =
         (fun x -> List.exists (String.equal (Node.node_to_string x)) targets)
         ns
 
-let main repo_dir nocache deploy target_nodes =
+let main (params : run_parameters) =
   let () = start_checks () in
-  let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
+  let guid = params.guid in
   let%lwt () =
-    Lwt_io.printl ("GUID for this run is (" ^ Uuidm.to_string guid ^ ")")
+    Lwt_io.printl ("GUID for this run is (" ^ Uuidm.to_string params.guid ^ ")")
   in
   let settings =
     Settings.parse_settings
-      (Fpath.add_seg (Fpath.v repo_dir) "mc_settings.yml")
+      (Fpath.add_seg (Fpath.v params.repo_dir) "mc_settings.yml")
   in
   let%lwt transfer_fn =
     pre_presign ~bucket:settings.storage_bucket ~duration:86400 ~region:settings.bucket_region
   in
-  let%lwt new_configs = get_configs repo_dir in
+  let%lwt new_configs = get_configs params.repo_dir in
   (*TODO Handle printing exceptions better, maybe use Fmt?*)
   let nodes = R.failwith_error_msg (parse_configs new_configs) in
   let%lwt () =
-    match target_nodes with
+    match params.target_nodes with
     | [] -> Lwt_io.printl "Running all nodes due to no targetting being selected."
     | _ -> Lwt_io.printl "Running only select nodes due to targetting."
   in
-  let runable_nodes = prune_nodes nodes target_nodes in
-  let%lwt pre_results = pre_source settings repo_dir guid transfer_fn in
+  let runable_nodes = prune_nodes nodes params.target_nodes in
+  let%lwt pre_results = pre_source settings params.repo_dir params.guid transfer_fn in
   let key = Sys.getenv "MC_KEY" in
   (*TODO Handle failing to upload our source bundle.*)
   let () = R.get_ok pre_results in
-  let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunStart in
+  let node_names = List.map (fun x -> Node.node_to_string x) runable_nodes in
+  let edges = List.map Node.get_edges runable_nodes |> List.concat in
+  let%lwt () = Notify.send_run_state ~settings ~guid ~key (Notify.make_run_start node_names edges) in
   match%lwt
-    run settings repo_dir guid runable_nodes transfer_fn nocache deploy
+    run settings params runable_nodes transfer_fn
   with
   | exception e ->
       let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunException in
       let%lwt () =
         Lwt_io.printf
-          "Something has gone wrong, we received in exception:\n %s \n"
-          (Printexc.to_string e)
+          "Something has gone wrong for run %s, we received in exception:\n %s \n"
+          (Uuidm.to_string guid) (Printexc.to_string e)
       in
       raise e
   | _, [], [] ->
       let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunSuccess in
-      Lwt_io.printl "All nodes completed successfully."
+      Lwt_io.printf "All nodes for run (%s) completed successfully.\n" (Uuidm.to_string guid)
   | complete, failed, todo ->
       let%lwt () = Notify.send_run_state ~settings ~guid ~key Notify.RunFail in
       let completed_names =
@@ -822,10 +510,12 @@ let main repo_dir nocache deploy target_nodes =
           (sprintf
              "\n\n\
               **********\n\
+              GUID: %s\n\
+              **********\n\
               Finished: %s\n\
               Failed: %s\n\
               Incomplete: %s\n\
               **********\n\n"
-             completed_names failed_names todo_names)
+             (Uuidm.to_string guid) completed_names failed_names todo_names)
       in
       exit 10

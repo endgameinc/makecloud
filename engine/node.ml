@@ -24,7 +24,7 @@ type real_node =
   ; file_root: string list
   ; base: string
   ; dependson: string list
-  ; steps: string list
+  ; steps: Command.t list
   ; keywords: keyword list
   ; env: (string * string) list
   ; color: string
@@ -45,15 +45,8 @@ let node_log n log =
   Lwt_io.printl line
 
 let is_node_cachable n =
-  let parse_command x =
-    let r = String.split_on_char ' ' x in
-    List.hd r
-  in
-  let parsed_commands = List.map parse_command n.steps in
-  let cachable_commands =
-    List.filter (String.equal "UPLOAD") parsed_commands |> List.length
-  in
-  cachable_commands > 0 && n.cache
+  let cmd_cachable = List.exists Command.cache_command n.steps  in
+  cmd_cachable && n.cache
 
 let rnode_has_keyword (n : real_node) keyword =
   List.exists (equal_keyword keyword) n.keywords
@@ -86,8 +79,9 @@ let hash_of_folder folder =
   Lwt.return (String.trim stdout)
 
 let hash_of_node_config (n : real_node) =
+  let step_text = List.map Command.to_string n.steps in
   let all_text =
-    List.concat [[n.name; n.base]; n.file_root; n.dependson; n.steps]
+    List.concat [[n.name; n.base]; n.file_root; n.dependson; step_text]
   in
   Digestif.SHA256.digest_string (String.concat " " all_text)
   |> Digestif.SHA256.to_hex
@@ -187,6 +181,7 @@ let make_rnode (yaml_root : string * Yaml.value) :
   let%bind steps_yaml = get_array steps_raw in
   let%bind rev_steps = result_fold get_string [] steps_yaml in
   let steps = List.rev rev_steps in
+  let%bind steps = Command.parse_commands steps in
   let%bind dependson =
     match get_value attrib_list "dependson" with
     | Error _ ->
