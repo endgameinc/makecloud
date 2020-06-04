@@ -321,7 +321,7 @@ module Aws : Provider_template.Provider = struct
     let none = (fun () -> R.error_msg missing_ami_err_msg) in
     let%bind image_id = Types.CreateImageResult.(box_id.image_id) |> R.of_option ~none |> Lwt.return
     in
-    let%bind waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 40 in
+    let%bind waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 240 in
     let%bind _store_result = store_ami ~settings ~n ~guid waiting_image in
     Lwt.return_ok waiting_image
 

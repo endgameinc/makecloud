@@ -54,19 +54,19 @@ let parse_configs config_list : (Node.node list, [> R.msg]) result =
 (* upload local s3 *)
 let transfer_to_shell ~(transfer_fn : string -> [`Get | `Put] -> Uri.t)
     ~(n : Node.real_node) ~guid =
+  let is_windows = Node.rnode_has_keyword n Windows in
   let transfer ~first_arg ~second_arg ~(verb : [`Get | `Put]) =
-    match verb with
-    | `Get ->
-        let uri_str =
-          Uri.to_string (transfer_fn (sprintf "/%s/%s" guid first_arg) verb)
-        in
-        sprintf "curl --retry 5 -X GET \"%s\" -o %s" uri_str second_arg
-    | `Put ->
-        let uri_str =
-          Uri.to_string
-            (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) verb)
-        in
-        sprintf "curl --retry 5 -X PUT \"%s\" --upload-file %s" uri_str first_arg
+    let get_url = Uri.to_string (transfer_fn (sprintf "/%s/%s" guid first_arg) verb) in
+    let put_url = Uri.to_string (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) verb) in
+    match verb, is_windows with
+    | `Get, false ->
+        sprintf "curl --retry 5 -X GET \"%s\" -o %s" get_url second_arg
+    | `Get, true ->
+        sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -Method 'GET' -UseBasicParsing -OutFile %s"|} get_url second_arg
+    | `Put, false ->
+        sprintf "curl --retry 5 -X PUT \"%s\" --upload-file %s" put_url first_arg
+    | `Put, true ->
+        sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -Method 'PUT' -UseBasicParsing -Infile %s"|} put_url first_arg
   in
   transfer
 
@@ -86,19 +86,18 @@ module Runner (M : Provider_template.Provider) = struct
     (*TODO: Get put in a blob ppx that loads from a file.*)
     let prep_steps =
       if Node.rnode_has_keyword n Windows then
-        ["curl -h"
-        ;"tar -h"
-        ;sprintf "powershell -command ' Invoke-WebRequest \"%s\" -OutFile \"C:\source.zip\"'" uri_str
-        ;"powershell -command 'New-Item C:\source -ItemType \"directory\"'"
-        ;"dir C:\\"
-        ;"tar xf C:\source.tar -C C:\source"]
-         |> List.map (( ^ ) "RUN ")
+        [ sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -OutFile C:\source.tar"|} uri_str
+        ; {|if exist C:\source rd /s /q C:\source|}
+        ; {|powershell -command New-Item C:\source -ItemType "directory"|}
+        ; {|powershell -command dir C:\|}
+        ; {|tar -x -f C:\source.tar -C C:\source|}]
+         |> List.map (fun x -> Command.(Run x))
       else
-        [ sprintf "curl --retry 5 -X GET \"%s\" -o %s" uri_str "source.tar"
+        [ sprintf {|curl --retry 5 -X GET "%s" -o %s|} uri_str "source.tar"
         ; "rm -rf /source; mkdir /source"
         ; "sha256sum source.tar"
         ; "tar xf /source.tar -C /source" ]
-        |> List.map (fun x -> Command.(Run x))
+         |> List.map (fun x -> Command.(Run x))
     in
     let transfer = transfer_to_shell ~transfer_fn ~n ~guid in
     (*TODO: We should handle failure here.*)
@@ -400,7 +399,7 @@ let pre_source (settings : Settings.t) cwd guid
       List.map (sprintf "--exclude=\'%s\'") settings.ignored_files
       |> String.concat " "
     in
-    let cmd = sprintf "tar cf %s %s -C %s ." temp excludes cwd in
+    let cmd = sprintf "tar chf %s %s -C %s ." temp excludes cwd in
     let%lwt () = Lwt_io.printl cmd in
     Lwt_process.pread
       (Lwt_process.shell cmd)
