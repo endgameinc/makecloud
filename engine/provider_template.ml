@@ -6,7 +6,7 @@ module type Provider = sig
   (*TODO: Investigate if we can bring Node.real_node into t*)
   val spinup : Settings.t -> Node.real_node -> string -> t Lwt.t
 
-  val set_env : t -> Node.real_node -> unit Lwt.t
+  val set_env : t -> Node.real_node -> (string * string) list -> unit Lwt.t
 
   val wait_until_ready : t -> Node.real_node -> unit -> unit option Lwt.t
 

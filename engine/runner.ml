@@ -101,7 +101,8 @@ module Runner (M : Provider_template.Provider) = struct
     in
     let transfer = transfer_to_shell ~transfer_fn ~n ~guid in
     (*TODO: We should handle failure here.*)
-    let%lwt () = M.set_env box n in
+    let additional_env = [("GUID", guid)] in
+    let%lwt () = M.set_env box n additional_env in
     let%lwt () =
       let state = Notify.make_start_commands "1.1.1.1" "foobar-secret" in
       Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key state

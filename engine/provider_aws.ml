@@ -156,9 +156,10 @@ module Aws : Provider_template.Provider = struct
     let ip_address = R.failwith_error_msg ip in
     Lwt.return {ip_address; instance_id; settings; aws_key; aws_secret}
 
-  let set_env t (n : Node.real_node) =
+  let set_env t (n : Node.real_node) additional_env =
     let uri = Uri.of_string ("http://" ^ t.ip_address ^ ":8000/set_env") in
-    let env = `Assoc (List.map (fun (k, v) -> (k, `String v)) n.env) in
+    let all_envs = List.concat [n.env; additional_env] in
+    let env = `Assoc (List.map (fun (k, v) -> (k, `String v)) all_envs) in
     let body = Yojson.to_string env |> Cohttp_lwt.Body.of_string in
     let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
     (*TODO cohttp_retry & drain the body/consume it.*)
