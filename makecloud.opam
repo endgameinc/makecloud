@@ -10,32 +10,34 @@ build: ["dune" "build" "@makecloud"]
 build-test: ["dune" "build" "@runtest"]
 build-doc: [ "dune" "build" "@doc" ]
 depends: [
-  "dune"
-  "cmdliner" {>= "1.0.0"}
-  "lwt" {>= "2.7.0"}
-  "lwt_ppx"
-  "ocaml-monadic" {>= "0.4.0"}
-  "base64"
-  "cohttp-lwt-unix"
   "aws-s3-lwt"
+  "base64"
   "calendar"
-  "ppx_blob"
-  "ppx_defer"
-  "ppx_deriving"
-  "ppx_protocol_conv" {>= "5.0.0"}
-  "ppx_protocol_conv_json"
-  "ppx_protocol_conv_yaml"
-  "rresult"
-  "uuidm"
-  "yaml"
-  "yojson"
-  "menhir"
-  "tls"
-  "uucp"
+  "cmdliner"{>="1.0.0"}
+  "cohttp-lwt-unix"
+  "dune"
   "ezxmlm"
   "irmin"
   "irmin-unix"
+  "jingoo"
+  "lwt"{>="2.7.0"}
+  "lwt_ppx"
+  "menhir"
+  "ocaml-monadic"{>="0.4.0"}
+  "opam-lock"
+  "ppx_blob"
+  "ppx_defer"
+  "ppx_deriving"
   "ppx_irmin"
+  "ppx_protocol_conv"{>="5.0.0"}
+  "ppx_protocol_conv_json"
+  "ppx_protocol_conv_yaml"
+  "rresult"
+  "tls"
+  "uucp"
+  "uuidm"
+  "yaml"
+  "yojson"
 ]
 synopsis: "A simple build system for complex builds"
 available: [ ocaml-version >= "4.05.0" ]
