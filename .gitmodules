@@ -1,3 +1,0 @@
-[submodule "ocaml-aws"]
-	path = ocaml-aws
-	url = https://github.com/inhabitedtype/ocaml-aws.git
