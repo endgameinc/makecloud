@@ -10,6 +10,8 @@ build: ["dune" "build" "@makecloud"]
 build-test: ["dune" "build" "@runtest"]
 build-doc: [ "dune" "build" "@doc" ]
 depends: [
+  "aws"
+  "aws-ec2"
   "aws-s3-lwt"
   "base64"
   "calendar"
