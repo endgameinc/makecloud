@@ -12,6 +12,7 @@ build-doc: [ "dune" "build" "@doc" ]
 depends: [
   "aws"
   "aws-ec2"
+  "aws-lwt"
   "aws-s3-lwt"
   "base64"
   "calendar"

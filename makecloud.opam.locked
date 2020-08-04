@@ -17,6 +17,7 @@ depends: [
   "astring" {= "0.8.4"}
   "aws" {= "1.0.2"}
   "aws-ec2" {= "1.2"}
+  "aws-lwt" {= "~dev"}
   "aws-s3" {= "4.5.1"}
   "aws-s3-lwt" {= "4.5.1"}
   "base" {= "v0.14.0"}
@@ -196,6 +197,10 @@ synopsis: "A simple build system for complex builds"
 name: "makecloud"
 version: "dev"
 pin-depends: [
+  [
+    "aws-lwt.~dev"
+    "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#query_arg_fix"
+  ]
   [
     "aws-ec2.1.2"
     "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#query_arg_fix"
