@@ -60,11 +60,11 @@ let transfer_to_shell ~(transfer_fn : string -> [`Get | `Put] -> Uri.t)
     let put_url = Uri.to_string (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) verb) in
     match verb, is_windows with
     | `Get, false ->
-        sprintf "curl --retry-all-errors --retry 5 -X GET \"%s\" -o %s" get_url second_arg
+        sprintf "curl --retry 5 -X GET \"%s\" -o %s" get_url second_arg
     | `Get, true ->
         sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -Method 'GET' -UseBasicParsing -OutFile %s"|} get_url second_arg
     | `Put, false ->
-        sprintf "curl --retry-all-errors --retry 5 -X PUT \"%s\" --upload-file %s" put_url first_arg
+        sprintf "curl --retry 5 -X PUT \"%s\" --upload-file %s" put_url first_arg
     | `Put, true ->
         sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -Method 'PUT' -UseBasicParsing -Infile %s"|} put_url first_arg
   in
@@ -93,7 +93,7 @@ module Runner (M : Provider_template.Provider) = struct
         ; {|tar -x -f C:\source.tar -C C:\source|}]
          |> List.map (fun x -> Command.(Run x))
       else
-        [ sprintf {|curl --retry-all-errors --retry 5 -X GET "%s" -o %s|} uri_str "source.tar"
+        [ sprintf {|curl --retry 5 -X GET "%s" -o %s|} uri_str "source.tar"
         ; "rm -rf /source; mkdir /source"
         ; "sha256sum source.tar"
         ; "tar xf /source.tar -C /source" ]
@@ -408,7 +408,7 @@ let pre_source (settings : Settings.t) cwd guid
   let upload_url =
     transfer_fn (sprintf "/%s/source.tar" (Uuidm.to_string guid)) `Put
   in
-  let upload_cmd = (sprintf "curl --retry-all-errors --retry 5 -X PUT \'%s\' --upload-file %s"
+  let upload_cmd = (sprintf "curl --retry 5 -X PUT \'%s\' --upload-file %s"
             (Uri.to_string upload_url) temp)
   in
   let%lwt _pout =
