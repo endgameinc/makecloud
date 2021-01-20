@@ -10,6 +10,7 @@ module Aws : Provider_template.Provider = struct
     ; settings: Settings.t
     ; aws_key: string
     ; aws_secret: string
+    ; aws_token: string option
     }
 
   let aws_to_result a =
@@ -53,8 +54,8 @@ module Aws : Provider_template.Provider = struct
     in
     Lwt.return (result |> aws_to_result)
 
-  let get_ami ~(settings : Settings.t) ~guid past_stage =
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+  let get_ami ~(params : Lib.run_parameters) ~(settings : Settings.t) ~guid past_stage =
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile:params.aws_profile () in
     let credentials = R.get_ok creds in
     let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
@@ -69,23 +70,24 @@ module Aws : Provider_template.Provider = struct
     in
     Lwt.return @@ R.reword_error (fun _ -> `Msg "Failed to get ami in s3.") result
 
-  let get_base ~settings ~guid ~(n : Node.real_node) =
+  let get_base ~params ~settings ~guid ~(n : Node.real_node) =
     if String.sub n.base 0 (min (String.length n.base) 3) = "ami" then
       Lwt.return n.base
     else
-      let%lwt r = get_ami ~settings ~guid n.base in
+      let%lwt r = get_ami ~params ~settings ~guid n.base in
       Lwt.return (R.get_ok r)
 
-  let spinup (settings : Settings.t) (n : Node.real_node) guid : t Lwt.t =
+  let spinup (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid : t Lwt.t =
     let%lwt () = Node.node_log n "Node Spinning Up" in
     (* TODO improve this to new cred method? maybe pass creds around *)
-    let%lwt unsafe_creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+    let%lwt unsafe_creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile:params.aws_profile () in
     let creds = unsafe_creds |> ok_or_raise in
     let aws_key = creds.access_key in
     let aws_secret = creds.secret_key in
+    let aws_token = creds.token in
     let%lwt () = Node.node_log n "Got Credentials." in
     let%lwt user_data = make_user_data n settings in
-    let%lwt base = get_base ~settings ~guid ~n in
+    let%lwt base = get_base ~params ~settings ~guid ~n in
     let instance_params =
       (*TODO We should gen an ssh key, upload it to aws and use that instead of a constant key. *)
       (*TODO Pull instance size from the config file.*)
@@ -154,7 +156,7 @@ module Aws : Provider_template.Provider = struct
     (*TODO aws_retry*)
     let%lwt ip = repeat_until_ok get_details 40 in
     let ip_address = R.failwith_error_msg ip in
-    Lwt.return {ip_address; instance_id; settings; aws_key; aws_secret}
+    Lwt.return {ip_address; instance_id; settings; aws_key; aws_secret; aws_token }
 
   let set_env t (n : Node.real_node) additional_env =
     let uri = Uri.of_string ("http://" ^ t.ip_address ^ ":8000/set_env") in
@@ -272,8 +274,8 @@ module Aws : Provider_template.Provider = struct
     in
     Lwt.return (result |> aws_to_result)
 
-  let store_ami ~(settings : Settings.t) ~(n : Node.real_node) ~guid ami_id =
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+  let store_ami ?profile ~(settings : Settings.t) ~(n : Node.real_node) ~guid ami_id =
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile () in
     let credentials = R.get_ok creds in
     let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
@@ -315,7 +317,7 @@ module Aws : Provider_template.Provider = struct
     | Error as e -> R.error_msgf "AMI has failed with reason %s."
       (Types.ImageState.to_string e)
 
-  let publish_image ~t ~settings ~n ~guid =
+  let publish_image ?profile ~t ~settings ~n ~guid =
     let instance_id = t.instance_id in
     let bind = Lwt_result.bind in
     let%bind box_id = repeat_until_ok (save_box ~t ~settings ~n ~instance_id ~guid) 20 in
@@ -323,10 +325,10 @@ module Aws : Provider_template.Provider = struct
     let%bind image_id = Types.CreateImageResult.(box_id.image_id) |> R.of_option ~none |> Lwt.return
     in
     let%bind waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 240 in
-    let%bind _store_result = store_ami ~settings ~n ~guid waiting_image in
+    let%bind _store_result = store_ami ?profile ~settings ~n ~guid waiting_image in
     Lwt.return_ok waiting_image
 
-  let runcmd transfer t (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
+  let runcmd transfer t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt () = Node.node_log n (Command.to_string cmd) in
     let expire_time = 12 * Node.rnode_get_expire_time n in
@@ -340,7 +342,7 @@ module Aws : Provider_template.Provider = struct
       send_command t.ip_address ~expire_time
         @@ transfer ~first_arg ~second_arg ~verb:`Get
     | Publish ->
-      let%lwt image_id = publish_image ~t ~settings ~n ~guid in
+      let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid in
       (match image_id with
       | Ok i ->
         let%lwt () = Node.node_log n (Fmt.str "Saved instance as %s" i) in
