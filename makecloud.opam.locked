@@ -198,16 +198,21 @@ name: "makecloud"
 version: "dev"
 pin-depends: [
   [
+    "aws-s3-lwt.4.5.1"
+    "git+ssh://git@github.com/UnrealAkama/aws-s3.git#cred_fetch"
+  ]
+  [
     "aws-lwt.~dev"
-    "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#query_arg_fix"
+    "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#mainline"
   ]
   [
     "aws-ec2.1.2"
-    "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#query_arg_fix"
+    "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#mainline"
   ]
   [
-    "aws.1.0.2"
-    "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#query_arg_fix"
+    "aws-s3.4.5.1"
+    "git+ssh://git@github.com/UnrealAkama/aws-s3.git#cred_fetch"
   ]
+  ["aws.1.0.2" "git+ssh://git@github.com/UnrealAkama/ocaml-aws.git#mainline"]
   ["uri.3.1.0" "git+ssh://git@github.com/UnrealAkama/ocaml-uri.git"]
 ]
