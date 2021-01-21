@@ -83,7 +83,7 @@ let parse_github _req body =
   in
   Lwt.return gh_resp
 
-let process req body =
+let process aws_profile req body =
   let gh_token = Sys.getenv "GITHUB_TOKEN" in
   let%lwt gh_info = parse_github req body in
   let%lwt tmp_file =
@@ -101,10 +101,10 @@ let process req body =
       (sprintf "refs/heads/%s" gh_info.repository.master_branch)
   in
   Lwt.async (fun () ->
-    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] in
+    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] ?aws_profile in
     Engine.Runner.main params);
   Lwt.return ()
 
-let handler req body =
-  let%lwt () = process req body in
+let handler profile req body =
+  let%lwt () = process profile req body in
   Cohttp_lwt_unix.Server.respond_string ~status:`OK ~body:"sent" ()

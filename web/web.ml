@@ -205,7 +205,7 @@ let key_check () =
   | None ->
       failwith "Error: The ENV variable MC_KEY isn't set and must be set."
 
-let router t api_key _conn req body =
+let router t api_key profile _conn req body =
   let uri = Cohttp.Request.uri req in
   let auth = http_auth api_key in
   (*let%lwt () = Lwt_io.printl (logs_request req) in*)
@@ -219,7 +219,7 @@ let router t api_key _conn req body =
   | "/run_report" ->
       auth run_report_http t req body
   | "/github_handler" ->
-      Github.handler req body
+      Github.handler profile req body
   | "/assets/timeago.min.js" ->
       serve_asset Timeago req body
   | "/assets/full.render.js" ->
@@ -231,25 +231,23 @@ let router t api_key _conn req body =
 
 let load_data t =
   let%lwt keys = Run_store.list t [] in
-  (Lwt_list.iter_s (fun (step, data) -> match data with
-       | `Contents ->
+  (Lwt_list.iter_s (fun (step, _data) ->
          (match%lwt Run_store.find t [step] with
           | Some run ->
             runs := GuidState.add step run !runs;
             Lwt_io.printl (Printf.sprintf "Found item for %s" step)
-          | None -> Lwt_io.printl (Printf.sprintf "Error: No item found for %s" step))
-       | `Node -> Lwt.return_unit)
+          | None -> Lwt_io.printl (Printf.sprintf "Error: No item found for %s" step)))
       keys)
 
-let server api_key =
+let server api_key profile =
   let () = Engine.Lib.key_check () in
   let config = Irmin_fs.config "mc_datastore" in
   let%lwt repo = Run_store.Repo.v config in
   let%lwt tree = Run_store.master repo in
   let%lwt () = load_data tree in
-  Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:(router tree api_key) ())
+  Server.create ~mode:(`TCP (`Port 9000)) (Server.make ~callback:(router tree api_key profile) ())
 
-let main api_key = Lwt_main.run (server api_key)
+let main api_key profile = Lwt_main.run (server api_key profile)
 
 open Cmdliner
 
@@ -257,7 +255,11 @@ let auth_cli p =
   let doc = "key for authentication." in
   Arg.(value & pos p string "." & info [] ~docv:"MC_KEY" ~doc)
 
-let main_t = Term.(const main $ auth_cli 0)
+let aws_profile =
+  let doc = "Specific AWS profile to run under." in
+  Arg.(value & opt (some string) None & info ["profile"] ~docv:"AWS_PROFILE" ~doc)
+
+let main_t = Term.(const main $ auth_cli 0 $ aws_profile)
 
 let info =
   let doc = "the web server for makecloud." in
