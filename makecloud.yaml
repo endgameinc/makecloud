@@ -1,5 +1,8 @@
 makecloud:
-  fileroot: serviceA/
+  fileroot:
+    - engine/
+    - cli/
+    - web/
   base: ami-02ccb28830b645a41
   steps:
     - RUN yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm

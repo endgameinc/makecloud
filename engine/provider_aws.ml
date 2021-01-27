@@ -39,7 +39,7 @@ module Aws : Provider_template.Provider = struct
     let b64 = Base64.(encode templated) |> R.failwith_error_msg in
     Lwt.return (String.split_on_char '=' b64 |> List.hd)
 
-  let apply_tags ~(settings : Settings.t) ~aws_key ~aws_secret ~guid ~instance_id () =
+  let apply_tags ~(settings : Settings.t) ~aws_key ~aws_secret ?token ~guid ~instance_id () =
     let tag_build = Types.Tag.make ~key:"Name" ~value:"Makecloud Builder" () in
     let tag_run = Types.Tag.make ~key:"Makecloud Run" ~value:guid () in
     let tags = [tag_build; tag_run] in
@@ -49,6 +49,7 @@ module Aws : Provider_template.Provider = struct
         ~region:settings.aws_region
         ~access_key:aws_key
         ~secret_key:aws_secret
+        ?token
         (module CreateTags)
         tags_req
     in
@@ -99,7 +100,7 @@ module Aws : Provider_template.Provider = struct
         ~instance_type:Types.InstanceType.M4_xlarge
         ~block_device_mappings:[
           Types.BlockDeviceMapping.make
-            ~device_name:"/dev/xvda"
+            ~device_name:"/dev/sdf"
             ~ebs:(Types.EbsBlockDevice.make
                     ~volume_size:settings.disk_size
                     ~delete_on_termination:true ())
@@ -113,6 +114,7 @@ module Aws : Provider_template.Provider = struct
           ~region:settings.aws_region
           ~access_key:aws_key
           ~secret_key:aws_secret
+          ?token:aws_token
           (module RunInstances)
           instance_params
       in
@@ -129,7 +131,7 @@ module Aws : Provider_template.Provider = struct
     let get_details () =
       let result =
         Aws_lwt.Runtime.run_request ~region:settings.aws_region ~access_key:aws_key
-          ~secret_key:aws_secret
+          ~secret_key:aws_secret ?token:aws_token
           (module DescribeInstances)
           (Types.DescribeInstancesRequest.make ~instance_ids:[instance_id] ())
       in
@@ -269,6 +271,7 @@ module Aws : Provider_template.Provider = struct
         ~region:settings.aws_region
         ~access_key:t.aws_key
         ~secret_key:t.aws_secret
+        ?token:t.aws_token
         (module CreateImage)
         image_req
     in
@@ -298,6 +301,7 @@ module Aws : Provider_template.Provider = struct
         ~region:settings.aws_region
         ~access_key:t.aws_key
         ~secret_key:t.aws_secret
+        ?token:t.aws_token
         (module DescribeImages)
         ami_req >>= fun x ->
         Lwt.return (aws_to_result x))
@@ -354,7 +358,7 @@ module Aws : Provider_template.Provider = struct
     let%lwt () = Node.node_log n "Node spinning down." in
     let details () =
       Aws_lwt.Runtime.run_request ~region:t.settings.aws_region ~access_key:t.aws_key
-        ~secret_key:t.aws_secret
+        ~secret_key:t.aws_secret ?token:t.aws_token
         (module TerminateInstances)
         (Types.TerminateInstancesRequest.make ~instance_ids:[t.instance_id] ())
     in
