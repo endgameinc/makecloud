@@ -3,10 +3,11 @@ makecloud:
     - engine/
     - cli/
     - web/
-  base: ami-02ccb28830b645a41
+  base: ami-047a51fa27710816e 
   steps:
     - RUN yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
-    - RUN yum install -y m4 gcc patch bubblewrap git hg darcs pcre-devel gmp-devel
+    - RUN yum install -y m4 gcc patch bubblewrap git hg darcs pcre-devel gmp-devel gcc-g++ g++
+    - RUN yum groupinstall -y "Development Tools"
     - RUN curl -L -o /tmp/opam https://github.com/ocaml/opam/releases/download/2.0.5/opam-2.0.5-x86_64-linux
     - RUN cp /tmp/opam /usr/bin/opam
     - RUN chmod a+x /usr/bin/opam
@@ -14,7 +15,7 @@ makecloud:
     - RUN uname -a
     - RUN yes "" | sudo -u ec2-user opam init -n --disable-completion --bare | tee /log_output
     - RUN chown -R ec2-user /source
-    - RUN sudo -u ec2-user opam switch install -y /source 4.07.1 --deps-only
+    - RUN sudo -u ec2-user opam switch install -y /source 4.11.1 --deps-only --locked
     - RUN cd source; sudo -u ec2-user opam exec -- dune build @makecloud
     - UPLOAD /source/_build/default/cli/main.exe mc
     - UPLOAD /source/_build/default/agent/agent.exe mc-agent
