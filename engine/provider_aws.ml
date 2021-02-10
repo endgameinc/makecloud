@@ -100,7 +100,7 @@ module Aws : Provider_template.Provider = struct
         ~instance_type:Types.InstanceType.M4_xlarge
         ~block_device_mappings:[
           Types.BlockDeviceMapping.make
-            ~device_name:"/dev/sdf"
+            ~device_name:"/dev/xvda"
             ~ebs:(Types.EbsBlockDevice.make
                     ~volume_size:settings.disk_size
                     ~delete_on_termination:true ())
