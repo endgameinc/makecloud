@@ -3,9 +3,9 @@ let sprintf = Printf.sprintf
 module R = Rresult.R
 open Engine.Lib
 
-let main repo_dir nocache deploy target_nodes dont_delete =
+let main repo_dir nocache deploy target_nodes dont_delete profile =
   let dont_delete = match dont_delete with | Some x -> [x] | None -> [] in
-  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete in
+  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete ?aws_profile:profile in
   Lwt_main.run (Engine.Runner.main params)
 
 let check repo_dir =
@@ -29,8 +29,8 @@ let check_configs_main cwd =
     (let%lwt configs = Engine.Runner.get_configs cwd in
      Lwt_list.iter_s Lwt_io.printl configs)
 
-let purge repo_dir target_hash () =
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+let purge repo_dir target_hash profile () =
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile () in
     let credentials = R.get_ok creds in
      let settings =
        Engine.Settings.parse_settings
@@ -49,9 +49,9 @@ let purge repo_dir target_hash () =
     let _ = Lwt_list.map_p check target_hash in
     Lwt.return ()
 
-let purge_main repo_dir target_hash =
+let purge_main repo_dir target_hash profile =
     Lwt_main.run (
-        purge repo_dir target_hash ()
+        purge repo_dir target_hash profile ()
     )
 
 let check_cache_per_node (node_name : string) cwd =
@@ -90,7 +90,7 @@ let dot_main repo_dir =
      in
      Lwt_io.printf "digraph { \n%s}\n" (String.concat "" content))
 
-let show_all_cache repo_dir =
+let show_all_cache profile repo_dir =
   Lwt_main.run
     (let%lwt () = Lwt_unix.chdir repo_dir in
      let%lwt new_configs = Engine.Runner.get_configs repo_dir in
@@ -117,7 +117,7 @@ let show_all_cache repo_dir =
      let print_node_cache (n : Engine.Node.real_node) =
        let name = Engine.Node.node_to_string (Engine.Node.Rnode n) in
        let%lwt rstatus =
-         Engine.Runner.AwsRunner.check_cache ~settings ~cwd:repo_dir ~n
+         Engine.Runner.AwsRunner.check_cache ?profile ~settings ~cwd:repo_dir ~n
        in
        let status = R.is_ok rstatus in
        let%lwt hash = Engine.Node.hash_of_node repo_dir n in
@@ -165,6 +165,10 @@ let dont_delete =
   let doc = "Don't delete a specific node, likely for debugging purposes." in
   Arg.(value & opt (some string) None & info ["dont-delete"] ~docv:"DONT_DELETE" ~doc)
 
+let aws_profile =
+  let doc = "Specific AWS profile to run under." in
+  Arg.(value & opt (some string) None & info ["profile"] ~docv:"AWS_PROFILE" ~doc)
+
 let make_info term_name doc =
   let man =
     [ `S Manpage.s_bugs
@@ -178,7 +182,7 @@ let invoke =
     make_info "invoke" "run the series of nodes to build a repository."
   in
   let term =
-    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes $ dont_delete)
+    Term.(const main $ make_repo_dir 0 $ nocache $ deploy $ target_nodes $ dont_delete $ aws_profile)
   in
   (term, info)
 
@@ -219,7 +223,7 @@ let show_all_cache =
     make_info "show-all-cache"
       "print all nodes that can cache, their status, and current hash"
   in
-  let term = Term.(const show_all_cache $ make_repo_dir 0) in
+  let term = Term.(const show_all_cache $ aws_profile $ make_repo_dir 0) in
   (term, info)
 
 let purge_cache =
@@ -227,7 +231,7 @@ let purge_cache =
         make_info "purge-cache"
         "purges one node's cached files for build"
     in
-    let term = Term.(const purge_main $ make_repo_dir 0 $ target_hash) in
+    let term = Term.(const purge_main $ make_repo_dir 0 $ target_hash $ aws_profile) in
     (term, info)
 
 let help =

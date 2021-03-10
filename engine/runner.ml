@@ -74,7 +74,7 @@ module Runner (M : Provider_template.Provider) = struct
   let run_node ~(settings : Settings.t) ~params ~n
       ~(transfer_fn : string -> [`Get | `Put] -> Uri.t) ~guid :
       (string, [> R.msg] * string) result Lwt.t =
-    let%lwt box = M.spinup settings n guid in
+    let%lwt box = M.spinup params settings n guid in
     let key = Sys.getenv "MC_KEY" in
     let%lwt () =
       Notify.send_state ~settings ~guid ~node:(Node.Rnode n) ~key Notify.StartBox
@@ -112,7 +112,7 @@ module Runner (M : Provider_template.Provider) = struct
         (fun a x ->
           match a with
           | Ok logs, old_logs ->
-              let%lwt r = M.runcmd transfer box settings n guid x in
+              let%lwt r = M.runcmd transfer box params settings n guid x in
               (* TODO: Use Buffer module to accumulate strings *)
               Lwt.return (r, old_logs ^ logs ^ (Command.to_string x) ^ "\n")
           | Error (err, logs), old_logs ->
@@ -140,10 +140,10 @@ module Runner (M : Provider_template.Provider) = struct
         Lwt.return (Error (err, old_logs ^ logs))
 
   (*TODO Retry this.*)
-  let store_logs ~(settings : Settings.t) ~guid ~(n : Node.real_node)
+  let store_logs ~(params : Lib.run_parameters) ~(settings : Settings.t) ~guid ~(n : Node.real_node)
       ~console_logs =
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
-    let credentials = R.get_ok creds in
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile:params.aws_profile () in
+    let credentials : Aws_s3.Credentials.t = R.get_ok creds in
     let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
       Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
@@ -159,10 +159,10 @@ module Runner (M : Provider_template.Provider) = struct
     in
     Lwt.return ()
 
-  let store_cache ~(settings : Settings.t) ~guid ~cwd ~n =
+  let store_cache ~(params : Lib.run_parameters) ~(settings : Settings.t) ~guid ~cwd ~n =
     let%lwt key = Node.hash_of_node cwd n in
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
-    let credentials = R.get_ok creds in
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile:params.aws_profile () in
+    let credentials : Aws_s3.Credentials.t = R.get_ok creds in
     let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
       Aws_s3.Region.endpoint ~inet:`V4 ~scheme:`Https region
@@ -176,9 +176,9 @@ module Runner (M : Provider_template.Provider) = struct
     in
     Lwt.return ()
 
-  let check_cache ~(settings : Settings.t) ~cwd ~n =
+  let check_cache ?profile ~(settings : Settings.t) ~cwd ~n =
     let%lwt hash = Node.hash_of_node cwd n in
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile () in
     let safe_creds = R.get_ok creds in
     let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
@@ -189,9 +189,9 @@ module Runner (M : Provider_template.Provider) = struct
         Aws_s3_lwt.S3.get ~bucket:settings.storage_bucket ~key:hash ~endpoint
       ~credentials:safe_creds ()) ()
 
-  let transfer_file ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) filename :
+  let transfer_file ~(params : Lib.run_parameters) ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) filename :
       (unit, Aws_s3_lwt.S3.error) result Lwt.t =
-    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials () in
+    let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile:params.aws_profile () in
     let credentials = R.get_ok creds in
     let region = Aws_s3.Region.of_string settings.bucket_region in
     let endpoint =
@@ -224,14 +224,14 @@ module Runner (M : Provider_template.Provider) = struct
     in
     Lwt_result.return ()
 
-  let process_cache ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) =
+  let process_cache ~params ~(settings : Settings.t) ~old_guid ~new_guid ~(n : Node.real_node) =
     let%lwt () = Lwt_io.printl (n.color ^ "Processing cache for " ^ n.name) in
     let key = Sys.getenv "MC_KEY" in
     let%lwt () = Notify.send_state ~settings ~guid:new_guid ~node:(Node.Rnode n) ~key ProcessCache in
     let upload_steps = List.filter Command.cache_command n.steps in
     let%lwt transfers =
       Lwt_list.map_p
-        (transfer_file ~settings ~old_guid ~new_guid ~n)
+        (transfer_file ~params ~settings ~old_guid ~new_guid ~n)
         (List.map Command.src_files upload_steps |> List.concat)
     in
     Lwt.return
@@ -239,16 +239,16 @@ module Runner (M : Provider_template.Provider) = struct
          (fun x -> match x with Error _ -> true | Ok _ -> false)
          transfers)
 
-  let invoke settings params (n : Node.real_node)
+  let invoke settings (params : Lib.run_parameters) (n : Node.real_node)
       (transfer_fn : string -> [`Get | `Put] -> Uri.t) :
       (bool, [> R.msg]) result Lwt.t =
     let is_cachable = Node.is_node_cachable n in
-    let%lwt cache_status = check_cache ~settings ~cwd:params.repo_dir ~n in
+    let%lwt cache_status = check_cache ?profile:params.aws_profile ~settings ~cwd:params.repo_dir ~n in
     let guid = Uuidm.to_string params.guid in
     match is_cachable && R.is_ok cache_status && not params.nocache with
     | true -> (
         let cache_guid = R.get_ok cache_status in
-        match%lwt process_cache ~settings ~old_guid:cache_guid ~new_guid:guid ~n with
+        match%lwt process_cache ~params ~settings ~old_guid:cache_guid ~new_guid:guid ~n with
         | [] ->
             Lwt_result.return true
         (* TODO: this should handle errors better *)
@@ -260,12 +260,12 @@ module Runner (M : Provider_template.Provider) = struct
         match%lwt run_node ~settings ~params ~n ~transfer_fn ~guid with
         | Ok console_logs ->
             let%lwt () = Lwt_io.printl "Steps completed successfully." in
-            let%lwt () = store_logs ~settings ~guid ~n ~console_logs in
-            let%lwt () = store_cache ~settings ~guid ~cwd:params.repo_dir ~n in
+            let%lwt () = store_logs ~params ~settings ~guid ~n ~console_logs in
+            let%lwt () = store_cache ~params ~settings ~guid ~cwd:params.repo_dir ~n in
             Lwt.return (R.ok false)
         | Error (msg, console_logs) ->
             let%lwt () = Lwt_io.printl "Steps didn't complete successfully." in
-            let%lwt () = store_logs ~settings ~guid ~n ~console_logs in
+            let%lwt () = store_logs ~params ~settings ~guid ~n ~console_logs in
             Lwt.return (R.error msg) )
 end
 
@@ -364,19 +364,13 @@ let run settings params node_list
   in
   aux [] [] [] node_list true
 
-let pre_presign ~bucket ~region ~duration =
-  let%lwt _credentials =
-    match%lwt Aws_s3_lwt.Credentials.Helper.get_credentials () with
+let pre_presign ~params ~bucket ~region ~duration =
+  let%lwt credentials =
+    match%lwt Aws_s3_lwt.Credentials.Helper.get_credentials ?profile:params.aws_profile () with
     | Ok x ->
         Lwt.return x
     | Error e ->
         raise e
-  in
-  let credentials =
-    Aws_s3.Credentials.make
-      ~access_key:_credentials.Aws_s3.Credentials.access_key
-      ~secret_key:(String.trim _credentials.Aws_s3.Credentials.secret_key)
-      ()
   in
   let date =
     match Ptime.of_float_s (Unix.gettimeofday ()) with
@@ -462,7 +456,7 @@ let main (params : run_parameters) =
       (Fpath.add_seg (Fpath.v params.repo_dir) "mc_settings.yml")
   in
   let%lwt transfer_fn =
-    pre_presign ~bucket:settings.storage_bucket ~duration:86400 ~region:settings.bucket_region
+    pre_presign ~params ~bucket:settings.storage_bucket ~duration:86400 ~region:settings.bucket_region
   in
   let%lwt new_configs = get_configs params.repo_dir in
   (*TODO Handle printing exceptions better, maybe use Fmt?*)
