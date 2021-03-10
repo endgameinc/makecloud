@@ -1,7 +1,7 @@
 (executable
  (name agent)
- (libraries lwt.unix cmdliner cohttp-lwt-unix yojson rresult)
- (preprocess (pps lwt_ppx ocaml-monadic)))
+ (libraries lwt.unix cmdliner cohttp-lwt-unix yojson rresult ppx_deriving_yojson.runtime)
+ (preprocess (pps lwt_ppx ocaml-monadic ppx_deriving_yojson)))
 
 (alias
   (name makecloud-agent)

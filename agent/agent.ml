@@ -57,7 +57,16 @@ let run_command ~command =
   let out = Lwt_io.(read_lines (of_fd ~mode:Input lwt_ofd)) in
   let lwt_efd, efd = Lwt_unix.pipe_in () in
   let err = Lwt_io.(read_lines (of_fd ~mode:Input lwt_efd)) in
-  let status = Lwt_process.exec ~env:(Array.append !env additional_env) ~stdout:(`FD_copy ofd) ~stderr:(`FD_copy efd) command in
+  let status = 
+    let result = Lwt_process.exec ~env:(Array.append !env additional_env) ~stdout:(`FD_copy ofd) ~stderr:(`FD_copy efd) command in
+    let parse_result = function
+      | Unix.WEXITED 0 ->
+        Lwt.return true 
+      | Unix.WEXITED _ | WSIGNALED _ | WSTOPPED _ ->
+        Lwt.return false 
+    in
+    Lwt.bind result parse_result
+  in 
   Lwt.return (status, out, err)
 
 let authentication key req =
@@ -68,10 +77,46 @@ let authentication key req =
   | _ ->
       false
 
+module Upload = struct
+  type t = { 
+    src_file : string;
+    dst_url : string; 
+  } [@@deriving of_yojson] 
+
+  let process_body body = 
+    let json = Yojson.Safe.from_string body in
+    of_yojson json |> R.reword_error R.msg
+
+  let process_upload body =
+    let _cmd = process_body body in
+    let out_stream, out_push = Lwt_stream.create () in
+    let err_stream, err_push = Lwt_stream.create () in
+    let promise = 
+      let%lwt f = Lwt_io.open_file ~mode:Input "/tmp/test" in
+      let s = Lwt_io.read_lines f in
+      let _body = Cohttp_lwt.Body.of_stream s in
+      let () = out_push (Some "Upload successfully") in
+      let () = out_push (None) in
+      let () = err_push (None) in
+      Lwt.return true
+    in
+    Lwt.return (promise, out_stream, err_stream)
+end
+
 let http_command _req body =
   let%lwt command = Cohttp_lwt.Body.to_string body in
   let promise =
     run_command ~command:(Lwt_process.shell command)
+  in
+  let id = !next_id in
+  next_id := id + 1 ;
+  cmds := (id, promise) :: !cmds ;
+  Server.respond_string ~status:`Accepted ~body:(string_of_int id) ()
+
+let http_upload _req body =
+  let%lwt raw_body = Cohttp_lwt.Body.to_string body in
+  let promise =
+    Upload.process_upload raw_body
   in
   let id = !next_id in
   next_id := id + 1 ;
@@ -137,13 +182,10 @@ let http_check_command req body =
     | Lwt.Return (s) -> (
       let%lwt current_logs = handle_output job_id out err in
       match s with
-      | Unix.WEXITED 0 ->
+      | true ->
           Server.respond_string ~status:`OK ~body:current_logs ()
-      | Unix.WEXITED i ->
-          Server.respond_string ~status:`Unprocessable_entity ~body:(Printf.sprintf "job failed with error code %d, logs:\n%s\n" i current_logs) ()
-      | _ ->
-          Server.respond_string ~status:`Unprocessable_entity
-            ~body:(sprintf "failure to run command. logs are \n%s\n" current_logs) () ) )
+      | false ->
+          Server.respond_string ~status:`Unprocessable_entity ~body:(Printf.sprintf "job failed error, logs:\n%s\n" current_logs) ()))
 
 let http_set_env _req body =
   let%lwt json_body = Cohttp_lwt.Body.to_string body in
@@ -182,6 +224,8 @@ let router req body =
   match Uri.path uri with
   | "/command" ->
       http_command req body
+  | "/upload" ->
+      http_upload req body
   | "/check_command" ->
       http_check_command req body
   | "/set_env" ->

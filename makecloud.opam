@@ -43,4 +43,4 @@ depends: [
   "yojson"
 ]
 synopsis: "A simple build system for complex builds"
-available: [ ocaml-version >= "4.05.0" ]
+available: [ ocaml-version >= "4.08.0" ]
