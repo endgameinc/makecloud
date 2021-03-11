@@ -184,8 +184,7 @@ module Aws : Provider_template.Provider = struct
         Lwt.return None
 
   (*TODO Please no more string types.*)
-  let send_command box s ~expire_time : (string, [> R.msg] * string) result Lwt.t =
-    let uri = Uri.of_string ("http://" ^ box ^ ":8000/command") in
+  let send_command cmd_uri s ~expire_time : (string, [> R.msg] * string) result Lwt.t =
     let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
     let rec repeat_until_ok f c =
       match c with
@@ -209,7 +208,7 @@ module Aws : Provider_template.Provider = struct
     in
     let send_command () =
       let body = Cohttp_lwt.Body.of_string s in
-      let%lwt resp, body = Cohttp_lwt_unix.Client.put uri ~headers ~body in
+      let%lwt resp, body = Cohttp_lwt_unix.Client.put cmd_uri ~headers ~body in
       let%lwt body = Cohttp_lwt.Body.to_string body in
       let process_response x =
         match Cohttp.Response.status x with
@@ -241,7 +240,7 @@ module Aws : Provider_template.Provider = struct
     (*TODO cohttp_retry*)
     let poll_agent () =
       let check_uri =
-        Uri.of_string ("http://" ^ box ^ ":8000/check_command")
+        Uri.with_path cmd_uri ("/check_command")
       in
       let check_uri = Uri.add_query_param' check_uri ("id", body) in
       match%lwt Cohttp_lwt_unix.Client.get check_uri ~headers with
@@ -332,19 +331,27 @@ module Aws : Provider_template.Provider = struct
     let%bind _store_result = store_ami ?profile ~settings ~n ~guid waiting_image in
     Lwt.return_ok waiting_image
 
-  let runcmd transfer t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
+  let make_file_transfer_payload src dst =
+    let json : Yojson.Safe.t = `Assoc [("src", `String src); ("dst", `String dst)] in
+    Yojson.Safe.to_string json
+
+  let runcmd t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt () = Node.node_log n (Command.to_string cmd) in
     let expire_time = 12 * Node.rnode_get_expire_time n in
+    let base_uri = Uri.make ~scheme:"http" ~port:8000 ~host:t.ip_address () in
     match cmd with
     | Command.(Run shell_cmd) ->
-      send_command t.ip_address ~expire_time shell_cmd
+      let u = Uri.with_path base_uri "/command" in
+      send_command u ~expire_time shell_cmd
     | Upload (first_arg, second_arg) ->
-      send_command t.ip_address ~expire_time
-        @@ transfer ~first_arg ~second_arg ~verb:`Put
+      let u = Uri.with_path base_uri "/upload" in
+      let payload = make_file_transfer_payload first_arg second_arg in
+      send_command u ~expire_time payload
     | Download (first_arg, second_arg)  ->
-      send_command t.ip_address ~expire_time
-        @@ transfer ~first_arg ~second_arg ~verb:`Get
+      let u = Uri.with_path base_uri "/download" in
+      let payload = make_file_transfer_payload first_arg second_arg in
+      send_command u ~expire_time payload
     | Publish ->
       let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid in
       (match image_id with

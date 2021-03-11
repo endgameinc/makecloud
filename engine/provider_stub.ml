@@ -15,7 +15,7 @@ module Stub : Provider_template.Provider = struct
 
   let set_env _box _n _additional_env = Lwt.return ()
 
-  let runcmd _transfer_fn _params _settings _box (n : Node.real_node) _guid cmd =
+  let runcmd _params _settings _box (n : Node.real_node) _guid cmd =
     let str_cmd = Command.to_string cmd in
     let _ = Lwt_io.printl ("[STUB]" ^ "[" ^ n.name ^ "]" ^ str_cmd) in
     Lwt.return (R.ok "")

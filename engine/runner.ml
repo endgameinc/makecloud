@@ -49,27 +49,6 @@ let parse_configs config_list : (Node.node list, [> R.msg]) result =
   let flattened_roots = List.concat cleaned_roots in
   result_fold Node.make_node [] flattened_roots
 
-(* TODO: this is bad and should be rewritten but I don't have a better design. *)
-(* download s3 local *)
-(* upload local s3 *)
-let transfer_to_shell ~(transfer_fn : string -> [`Get | `Put] -> Uri.t)
-    ~(n : Node.real_node) ~guid =
-  let is_windows = Node.rnode_has_keyword n Windows in
-  let transfer ~first_arg ~second_arg ~(verb : [`Get | `Put]) =
-    let get_url = Uri.to_string (transfer_fn (sprintf "/%s/%s" guid first_arg) verb) in
-    let put_url = Uri.to_string (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) verb) in
-    match verb, is_windows with
-    | `Get, false ->
-        sprintf "curl --retry 5 -X GET \"%s\" -o %s" get_url second_arg
-    | `Get, true ->
-        sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -Method 'GET' -UseBasicParsing -OutFile %s"|} get_url second_arg
-    | `Put, false ->
-        sprintf "curl --retry 5 -X PUT \"%s\" --upload-file %s" put_url first_arg
-    | `Put, true ->
-        sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -Method 'PUT' -UseBasicParsing -Infile %s"|} put_url first_arg
-  in
-  transfer
-
 module Runner (M : Provider_template.Provider) = struct
   let run_node ~(settings : Settings.t) ~params ~n
       ~(transfer_fn : string -> [`Get | `Put] -> Uri.t) ~guid :
@@ -99,7 +78,6 @@ module Runner (M : Provider_template.Provider) = struct
         ; "tar xf /source.tar -C /source" ]
          |> List.map (fun x -> Command.(Run x))
     in
-    let transfer = transfer_to_shell ~transfer_fn ~n ~guid in
     (*TODO: We should handle failure here.*)
     let additional_env = [("GUID", guid)] in
     let%lwt () = M.set_env box n additional_env in
@@ -112,7 +90,7 @@ module Runner (M : Provider_template.Provider) = struct
         (fun a x ->
           match a with
           | Ok logs, old_logs ->
-              let%lwt r = M.runcmd transfer box params settings n guid x in
+              let%lwt r = M.runcmd box params settings n guid x in
               (* TODO: Use Buffer module to accumulate strings *)
               Lwt.return (r, old_logs ^ logs ^ (Command.to_string x) ^ "\n")
           | Error (err, logs), old_logs ->
