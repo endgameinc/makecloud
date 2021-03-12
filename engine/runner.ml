@@ -65,18 +65,20 @@ module Runner (M : Provider_template.Provider) = struct
     (*TODO: Get put in a blob ppx that loads from a file.*)
     let prep_steps =
       if Node.rnode_has_keyword n Windows then
-        [ sprintf {|powershell -command "$ProgressPreference = 'SilentlyContinue'; Invoke-WebRequest '%s' -OutFile C:\source.tar"|} uri_str
-        ; {|if exist C:\source rd /s /q C:\source|}
-        ; {|powershell -command New-Item C:\source -ItemType "directory"|}
-        ; {|powershell -command dir C:\|}
-        ; {|tar -x -f C:\source.tar -C C:\source|}]
-         |> List.map (fun x -> Command.(Run x))
+        let tl = [ sprintf {|if exist C:\source rd /s /q C:\source|}
+          ; {|powershell -command New-Item C:\source -ItemType "directory"|}
+          ; {|powershell -command dir C:\|}
+          ; {|tar -x -f C:\source.tar -C C:\source|}]
+          |> List.map (fun x -> Command.(Run x))
+        in
+        Command.(Download (uri_str, {|C:\source.tar|})) :: tl
       else
-        [ sprintf {|curl --retry 5 -X GET "%s" -o %s|} uri_str "source.tar"
-        ; "rm -rf /source; mkdir /source"
-        ; "sha256sum source.tar"
-        ; "tar xf /source.tar -C /source" ]
-         |> List.map (fun x -> Command.(Run x))
+        let tl = [ "rm -rf /source; mkdir /source"
+          ; "sha256sum source.tar"
+          ; "tar xf /source.tar -C /source" ]
+          |> List.map (fun x -> Command.(Run x))
+        in
+        Command.(Download (uri_str, "/source.tar")) :: tl
     in
     (*TODO: We should handle failure here.*)
     let additional_env = [("GUID", guid)] in

@@ -6,6 +6,6 @@ aws_region: us-east-2
 aws_security_group: sg-03d476f60972fa153
 aws_key_name: makecloud
 aws_subnet_id: subnet-02d2562cff6c764dd
-linux_agent_url: https://makecloud.s3.us-east-2.amazonaws.com/linux_agent_beta
+linux_agent_url: https://makecloud.s3.us-east-2.amazonaws.com/mc-agent-linux-0.4.0
 windows_agent_url: https://makecloud.s3.us-east-2.amazonaws.com/mc_agent
 only_public_ip: true

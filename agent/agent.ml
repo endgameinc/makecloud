@@ -57,16 +57,16 @@ let run_command ~command =
   let out = Lwt_io.(read_lines (of_fd ~mode:Input lwt_ofd)) in
   let lwt_efd, efd = Lwt_unix.pipe_in () in
   let err = Lwt_io.(read_lines (of_fd ~mode:Input lwt_efd)) in
-  let status = 
+  let status =
     let result = Lwt_process.exec ~env:(Array.append !env additional_env) ~stdout:(`FD_copy ofd) ~stderr:(`FD_copy efd) command in
     let parse_result = function
       | Unix.WEXITED 0 ->
-        Lwt.return true 
+        Lwt.return true
       | Unix.WEXITED _ | WSIGNALED _ | WSTOPPED _ ->
-        Lwt.return false 
+        Lwt.return false
     in
     Lwt.bind result parse_result
-  in 
+  in
   Lwt.return (status, out, err)
 
 let authentication key req =
@@ -78,66 +78,68 @@ let authentication key req =
       false
 
 module File_transfer = struct
-  type t = { 
+  type t = {
     src : string;
-    dst : string; 
-  } [@@deriving of_yojson] 
+    dst : string;
+  } [@@deriving of_yojson]
 
-	type direction = Upload | Download
+  type direction = Upload | Download
 
-  let process_body body = 
+  let process_body body =
     let json = Yojson.Safe.from_string body in
     of_yojson json |> R.reword_error R.msg
 
   let upload cmd out_push err_push () =
     let (let*) = Lwt.bind in
-		let* f = Lwt_io.open_file ~mode:Input cmd.src in
-		let s = Lwt_io.read_lines f in
-		let body = Cohttp_lwt.Body.of_stream s in
-		let uri = Uri.of_string cmd.dst in
-		let* response, rbody = Cohttp_lwt_unix.Client.put ~chunked:false ~body uri in
-		let* result = match response.status with
-		| #Cohttp.Code.success_status ->
-			let () = out_push (Some "Upload successful.\n") in
-			Lwt.return true
-		| #Cohttp.Code.server_error_status ->
-			let* msg = Cohttp_lwt.Body.to_string rbody in
-			let () = err_push (Some (Fmt.str "Upload failed from server with body:\n %s\n" msg)) in
-			Lwt.return false 
-		| _ as c ->
-			let* msg = Cohttp_lwt.Body.to_string rbody in
-			let code = Cohttp.Code.string_of_status c in
-			let () = err_push (Some (Fmt.str "Upload failed from server with code %s and body:\n %s\n" code msg)) in
-			Lwt.return false 
-		in
-		Lwt.return result
+    let* f = Lwt_io.open_file ~mode:Input cmd.src in
+    let s = Lwt_io.read_lines f in
+    let body = Cohttp_lwt.Body.of_stream s in
+    let uri = Uri.of_string cmd.dst in
+    let* response, rbody = Cohttp_lwt_unix.Client.put ~chunked:false ~body uri in
+    let* result = match response.status with
+    | #Cohttp.Code.success_status ->
+      let () = out_push (Some "Upload successful.\n") in
+      Lwt.return true
+    | #Cohttp.Code.server_error_status ->
+      let* msg = Cohttp_lwt.Body.to_string rbody in
+      let () = err_push (Some (Fmt.str "Upload failed from server with body:\n %s\n" msg)) in
+      Lwt.return false
+    | _ as c ->
+      let* msg = Cohttp_lwt.Body.to_string rbody in
+      let code = Cohttp.Code.string_of_status c in
+      let () = err_push (Some (Fmt.str "Upload failed from server with code %s and body:\n %s\n" code msg)) in
+      Lwt.return false
+    in
+    let* () = Lwt_io.close f in
+    Lwt.return result
 
   let download cmd out_push err_push () =
     let (let*) = Lwt.bind in
-		let uri = Uri.of_string cmd.src in
-		let* response, rbody = Cohttp_lwt_unix.Client.get uri in
-		let* result = match response.status with
-		| #Cohttp.Code.success_status ->
-		  let* f = Lwt_io.open_file ~mode:Output cmd.dst in
-		  let body = Cohttp_lwt.Body.to_stream rbody in
-		  let* () = Lwt_io.write_lines f body in
-			let () = out_push (Some "Download successful.\n") in
-			Lwt.return true
-		| #Cohttp.Code.server_error_status ->
-			let* msg = Cohttp_lwt.Body.to_string rbody in
-			let () = err_push (Some (Fmt.str "Download failed from server with body:\n %s\n" msg)) in
-			Lwt.return false 
-		| _ as c ->
-			let* msg = Cohttp_lwt.Body.to_string rbody in
-			let code = Cohttp.Code.string_of_status c in
-			let () = err_push (Some (Fmt.str "Download failed from server with code %s and body:\n %s\n" code msg)) in
-			Lwt.return false 
-		in
-		Lwt.return result
+    let uri = Uri.of_string cmd.src in
+    let* response, rbody = Cohttp_lwt_unix.Client.get uri in
+    let* result = match response.status with
+    | #Cohttp.Code.success_status ->
+      let* f = Lwt_io.open_file ~mode:Output cmd.dst in
+      let body = Cohttp_lwt.Body.to_stream rbody in
+      let* () = Lwt_io.write_lines f body in
+      let* () = Lwt_io.close f in
+      let () = out_push (Some "Download successful.\n") in
+      Lwt.return true
+    | #Cohttp.Code.server_error_status ->
+      let* msg = Cohttp_lwt.Body.to_string rbody in
+      let () = err_push (Some (Fmt.str "Download failed from server with body:\n %s\n" msg)) in
+      Lwt.return false
+    | _ as c ->
+      let* msg = Cohttp_lwt.Body.to_string rbody in
+      let code = Cohttp.Code.string_of_status c in
+      let () = err_push (Some (Fmt.str "Download failed from server with code %s and body:\n %s\n" code msg)) in
+      Lwt.return false
+    in
+    Lwt.return result
 
   let close out_push err_push =
-		out_push (None);
-		err_push (None);
+    out_push (None);
+    err_push (None);
     ()
 
   let process direction body =
@@ -146,19 +148,19 @@ module File_transfer = struct
     let+ cmd = Lwt.return @@ process_body body in
     let out_stream, out_push = Lwt_stream.create () in
     let err_stream, err_push = Lwt_stream.create () in
-    let rec promise n () = 
+    let rec promise n () =
       let* result = match direction with
       | Upload -> upload cmd out_push err_push ()
       | Download -> download cmd out_push err_push ()
       in
       match result with
-      | true -> 
+      | true ->
         let () = close out_push err_push in Lwt.return true
       | false -> if n <= 1 then let () = close out_push err_push in Lwt.return false else promise (n - 1) ()
-    in 
+    in
     Lwt_result.return (promise 3 (), out_stream, err_stream)
 
-  let handle direction body = 
+  let handle direction body =
     let (let+) = Lwt.bind in
     let+ result = process direction body in
     match result with

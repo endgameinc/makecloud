@@ -35,6 +35,7 @@ depends: [
   "ppx_protocol_conv"{>="5.0.0"}
   "ppx_protocol_conv_json"
   "ppx_protocol_conv_yaml"
+  "ppx_deriving_yojson"
   "rresult"
   "tls"
   "uucp"
