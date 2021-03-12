@@ -121,7 +121,8 @@ module File_transfer = struct
     | #Cohttp.Code.success_status ->
       let* f = Lwt_io.open_file ~mode:Output cmd.dst in
       let body = Cohttp_lwt.Body.to_stream rbody in
-      let* () = Lwt_io.write_lines f body in
+      let safe_write_lines oc lines = Lwt_stream.iter_s (fun line -> Lwt_io.write oc line) lines in
+      let* () = safe_write_lines f body in
       let* () = Lwt_io.close f in
       let () = out_push (Some "Download successful.\n") in
       Lwt.return true
