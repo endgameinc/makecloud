@@ -92,7 +92,7 @@ module Runner (M : Provider_template.Provider) = struct
         (fun a x ->
           match a with
           | Ok logs, old_logs ->
-              let%lwt r = M.runcmd box params settings n guid x in
+              let%lwt r = M.runcmd transfer_fn box params settings n guid x in
               (* TODO: Use Buffer module to accumulate strings *)
               Lwt.return (r, old_logs ^ logs ^ (Command.to_string x) ^ "\n")
           | Error (err, logs), old_logs ->

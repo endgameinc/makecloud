@@ -92,8 +92,17 @@ module File_transfer = struct
   let upload cmd out_push err_push () =
     let (let*) = Lwt.bind in
     let* f = Lwt_io.open_file ~mode:Input cmd.src in
-    let s = Lwt_io.read_lines f in
-    let body = Cohttp_lwt.Body.of_stream s in
+    let safe_read ic =
+      let buf = Bytes.create 4096 in
+      let aux () =
+        let* data = Lwt_io.read_into ic buf 0 4096 in
+        match data with
+          | 0 -> Lwt.return None
+          | i -> Lwt.return @@ Some (Bytes.sub_string buf 0 i)
+      in
+      Lwt_stream.from aux
+    in
+    let body = Cohttp_lwt.Body.of_stream (safe_read f) in
     let uri = Uri.of_string cmd.dst in
     let* response, rbody = Cohttp_lwt_unix.Client.put ~chunked:false ~body uri in
     let* result = match response.status with
@@ -121,8 +130,8 @@ module File_transfer = struct
     | #Cohttp.Code.success_status ->
       let* f = Lwt_io.open_file ~mode:Output cmd.dst in
       let body = Cohttp_lwt.Body.to_stream rbody in
-      let safe_write_lines oc lines = Lwt_stream.iter_s (fun line -> Lwt_io.write oc line) lines in
-      let* () = safe_write_lines f body in
+      let safe_write oc lines = Lwt_stream.iter_s (fun line -> Lwt_io.write oc line) lines in
+      let* () = safe_write f body in
       let* () = Lwt_io.close f in
       let () = out_push (Some "Download successful.\n") in
       Lwt.return true

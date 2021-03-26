@@ -335,7 +335,7 @@ module Aws : Provider_template.Provider = struct
     let json : Yojson.Safe.t = `Assoc [("src", `String src); ("dst", `String dst)] in
     Yojson.Safe.to_string json
 
-  let runcmd t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
+  let runcmd transfer_fn t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt () = Node.node_log n (Command.to_string cmd) in
     let expire_time = 12 * Node.rnode_get_expire_time n in
@@ -346,11 +346,17 @@ module Aws : Provider_template.Provider = struct
       send_command u ~expire_time shell_cmd
     | Upload (first_arg, second_arg) ->
       let u = Uri.with_path base_uri "/upload" in
-      let payload = make_file_transfer_payload first_arg second_arg in
+      let uri = Uri.to_string (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) `Put) in
+      let payload = make_file_transfer_payload first_arg uri in
       send_command u ~expire_time payload
     | Download (first_arg, second_arg)  ->
       let u = Uri.with_path base_uri "/download" in
-      let payload = make_file_transfer_payload first_arg second_arg in
+      let uri = if Uri.of_string first_arg |> Uri.scheme |> Option.is_none then
+          Uri.to_string (transfer_fn (sprintf "/%s/%s" guid first_arg) `Get)
+        else
+          first_arg
+      in
+      let payload = make_file_transfer_payload uri second_arg in
       send_command u ~expire_time payload
     | Publish ->
       let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid in
