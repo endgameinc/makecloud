@@ -229,13 +229,14 @@ module Aws : Provider_template.Provider = struct
       process_response resp
     in
     let%lwt _resp, body =
-      match%lwt repeat_until_ok send_command 10 with
+      match%lwt repeat_until_ok send_command 60 with
       | Ok (r, b) ->
           Lwt.return (r, b)
-      | Error _ ->
-          failwith
+      | Error (`Msg message, note) ->
+          Lwt.fail_with (Fmt.str
             "Can't talk to an agent, this probably means the agent failed to \
-             install."
+             install. Error: %s - %s"
+             message note)
     in
     (*TODO cohttp_retry*)
     let poll_agent () =
