@@ -37,11 +37,17 @@ jobs:
           ocaml-version: ${{ matrix.ocaml-version }}
 
       - run: opam install ./makecloud.opam.locked --deps-only --unlock-base -y
-      
+
       - run: eval $(opam env) && dune build
-      
+
       - name: Upload CLI
         uses: actions/upload-artifact@v2
         with:
           name: makecloud-cli
           path: _build/default/cli/main.exe
+
+      - name: Upload Agent
+        uses: actions/upload-artifact@v2
+        with:
+          name: makecloud-agent
+          path: _build/default/agent/agent.exe
