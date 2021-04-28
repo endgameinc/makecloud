@@ -21,7 +21,7 @@ jobs:
       fail-fast: false
       matrix:
         os:
-          - ubuntu-16.04
+          - ubuntu-18.04
         ocaml-version:
           - 4.11.2
 
