@@ -2,7 +2,7 @@
  (name main)
  (public_name mc)
  (libraries engine lwt.unix cmdliner yaml.unix aws-ec2 aws-lwt aws-s3-lwt rresult uuidm digestif astring)
- (preprocess (pps lwt_ppx ppx_defer ocaml-monadic )))
+ (preprocess (pps lwt_ppx ppx_defer)))
 
 (alias
   (name makecloud-cli)
