@@ -90,12 +90,11 @@ module File_transfer = struct
     of_yojson json |> R.reword_error R.msg
 
   let upload cmd out_push err_push () =
-    let (let*) = Lwt.bind in
-    let* f = Lwt_io.open_file ~mode:Input cmd.src in
+    let%lwt f = Lwt_io.open_file ~mode:Input cmd.src in
     let safe_read ic =
       let buf = Bytes.create 4096 in
       let aux () =
-        let* data = Lwt_io.read_into ic buf 0 4096 in
+        let%lwt data = Lwt_io.read_into ic buf 0 4096 in
         match data with
           | 0 -> Lwt.return None
           | i -> Lwt.return @@ Some (Bytes.sub_string buf 0 i)
@@ -104,22 +103,29 @@ module File_transfer = struct
     in
     let body = Cohttp_lwt.Body.of_stream (safe_read f) in
     let uri = Uri.of_string cmd.dst in
-    let* response, rbody = Cohttp_lwt_unix.Client.put ~chunked:false ~body uri in
-    let* result = match response.status with
-    | #Cohttp.Code.success_status ->
-      let () = out_push (Some "Upload successful.\n") in
-      Lwt.return true
-    | #Cohttp.Code.server_error_status ->
-      let* msg = Cohttp_lwt.Body.to_string rbody in
-      let () = err_push (Some (Fmt.str "Upload failed from server with body:\n %s\n" msg)) in
-      Lwt.return false
-    | _ as c ->
-      let* msg = Cohttp_lwt.Body.to_string rbody in
-      let code = Cohttp.Code.string_of_status c in
-      let () = err_push (Some (Fmt.str "Upload failed from server with code %s and body:\n %s\n" code msg)) in
-      Lwt.return false
+    let%lwt result =
+      match%lwt Cohttp_lwt_unix.Client.put ~chunked:false ~body uri with
+      | response, rbody -> begin
+        match response.status with
+        | #Cohttp.Code.success_status ->
+          let%lwt () = Cohttp_lwt.Body.drain_body rbody in
+          let () = out_push (Some "Upload successful.\n") in
+          Lwt.return true
+        | #Cohttp.Code.server_error_status ->
+          let%lwt msg = Cohttp_lwt.Body.to_string rbody in
+          let () = err_push (Some (Fmt.str "Upload failed from server with body:\n %s\n" msg)) in
+          Lwt.return false
+        | _ as c ->
+          let%lwt msg = Cohttp_lwt.Body.to_string rbody in
+          let code = Cohttp.Code.string_of_status c in
+          let () = err_push (Some (Fmt.str "Upload failed from server with code %s and body:\n %s\n" code msg)) in
+          Lwt.return false
+      end
+      | exception e ->
+        let () = err_push (Some (Fmt.str "Upload failed with exception %a" Fmt.exn e)) in
+        Lwt.return false
     in
-    let* () = Lwt_io.close f in
+    let%lwt () = Lwt_io.close f in
     Lwt.return result
 
   let download cmd out_push err_push () =
