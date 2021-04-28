@@ -50,15 +50,15 @@ let show_index _req body =
 
 let report_http_check req body =
   let uri = Request.uri req in
-  let bind = R.bind in
-  let%bind guid =
+  let ( let* ) = R.bind in
+  let* guid =
     match Uri.get_query_param uri "guid" with
     | None ->
         R.error (`Bad_request, "must supply a guid parameter for the run.")
     | Some i ->
         R.ok i
   in
-  let%bind node_name =
+  let* node_name =
     match Uri.get_query_param uri "node_name" with
     | None ->
         R.error (`Bad_request, "must supply a node_name parameter for the run.")
@@ -66,7 +66,7 @@ let report_http_check req body =
         R.ok i
   in
   let clean_json = Yojson.Safe.from_string body in
-  let%bind state =
+  let* state =
     match Engine.Notify.state_of_json clean_json with
     | Error _ ->
         R.error (`Bad_request, "must supply a valid state for the node.")
@@ -98,8 +98,8 @@ let report_http t req body =
 
 let run_report_http_check req body =
   let uri = Request.uri req in
-  let bind = R.bind in
-  let%bind guid =
+  let ( let* ) = R.bind in
+  let* guid =
     match Uri.get_query_param uri "guid" with
     | None ->
         R.error (`Bad_request, "must supply a guid parameter for the run.")
@@ -108,7 +108,7 @@ let run_report_http_check req body =
   in
   let name = Uri.get_query_param uri "name" in
   let body_json = Yojson.Safe.from_string body in
-  let%bind state = Engine.Notify.run_state_of_json body_json |> R.reword_error (fun _ -> (`Bad_request, "Error decoding run state"))
+  let* state = Engine.Notify.run_state_of_json body_json |> R.reword_error (fun _ -> (`Bad_request, "Error decoding run state"))
   in
   R.ok (guid, name, state)
 
@@ -136,8 +136,8 @@ let ret_404_http () =
 
 let show_run_http_check req : (string, [> `Bad_request] * string) result =
   let uri = Request.uri req in
-  let bind = R.bind in
-  let%bind guid =
+  let ( let* ) = R.bind in
+  let* guid =
     match Uri.get_query_param uri "guid" with
     | None ->
         R.error
