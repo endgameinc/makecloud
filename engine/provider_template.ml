@@ -11,7 +11,7 @@ module type Provider = sig
   val wait_until_ready : t -> Node.real_node -> unit -> unit option Lwt.t
 
   val runcmd :
-       (first_arg:string -> second_arg:string -> verb:verb -> string)
+    (string -> [`Get | `Put] -> Uri.t)
     -> t
     -> Lib.run_parameters
     -> Settings.t

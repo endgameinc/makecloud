@@ -10,7 +10,7 @@ type run_parameters =
   ; aws_profile : string option
   ; guid : Uuidm.t }
 
-let make_params ?aws_profile ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete =
+let make_params ~aws_profile ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete =
   let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
   { repo_dir; nocache; deploy; target_nodes; guid; dont_delete; aws_profile }
 
@@ -46,8 +46,8 @@ let get_string str =
       R.error (R.msg "not a string")
 
 let get_string_from_attrib_list assoc_list key =
-  let bind = R.bind in
-  let%bind pair = get_value assoc_list key in
+  let ( let* ) = R.bind in
+  let* pair = get_value assoc_list key in
   get_string (snd pair)
 
 let result_fold fn acc input_list =

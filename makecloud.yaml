@@ -3,7 +3,8 @@ makecloud:
     - engine/
     - cli/
     - web/
-  base: ami-047a51fa27710816e 
+    - agent/
+  base: ami-07a0844029df33d7d
   steps:
     - RUN yum install -y https://dl.fedoraproject.org/pub/epel/epel-release-latest-7.noarch.rpm
     - RUN yum install -y m4 gcc patch bubblewrap git hg darcs pcre-devel gmp-devel gcc-g++ g++

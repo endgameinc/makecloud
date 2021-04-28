@@ -184,8 +184,7 @@ module Aws : Provider_template.Provider = struct
         Lwt.return None
 
   (*TODO Please no more string types.*)
-  let send_command box s ~expire_time : (string, [> R.msg] * string) result Lwt.t =
-    let uri = Uri.of_string ("http://" ^ box ^ ":8000/command") in
+  let send_command cmd_uri s ~expire_time : (string, [> R.msg] * string) result Lwt.t =
     let headers = Cohttp.Header.init_with "ApiKey" (Sys.getenv "MC_KEY") in
     let rec repeat_until_ok f c =
       match c with
@@ -209,7 +208,7 @@ module Aws : Provider_template.Provider = struct
     in
     let send_command () =
       let body = Cohttp_lwt.Body.of_string s in
-      let%lwt resp, body = Cohttp_lwt_unix.Client.put uri ~headers ~body in
+      let%lwt resp, body = Cohttp_lwt_unix.Client.put cmd_uri ~headers ~body in
       let%lwt body = Cohttp_lwt.Body.to_string body in
       let process_response x =
         match Cohttp.Response.status x with
@@ -230,18 +229,19 @@ module Aws : Provider_template.Provider = struct
       process_response resp
     in
     let%lwt _resp, body =
-      match%lwt repeat_until_ok send_command 10 with
+      match%lwt repeat_until_ok send_command 60 with
       | Ok (r, b) ->
           Lwt.return (r, b)
-      | Error _ ->
-          failwith
+      | Error (`Msg message, note) ->
+          Lwt.fail_with (Fmt.str
             "Can't talk to an agent, this probably means the agent failed to \
-             install."
+             install. Error: %s - %s"
+             message note)
     in
     (*TODO cohttp_retry*)
     let poll_agent () =
       let check_uri =
-        Uri.of_string ("http://" ^ box ^ ":8000/check_command")
+        Uri.with_path cmd_uri ("/check_command")
       in
       let check_uri = Uri.add_query_param' check_uri ("id", body) in
       match%lwt Cohttp_lwt_unix.Client.get check_uri ~headers with
@@ -294,9 +294,9 @@ module Aws : Provider_template.Provider = struct
     Lwt.return @@ R.reword_error (fun _ -> `Msg "Failed to store ami in s3.") result
 
   let check_on_ami ~t ~(settings : Settings.t) ~n image_id () =
-    let bind = Lwt_result.bind in
+    let ( let* ) = Lwt_result.bind in
     let ami_req = Types.DescribeImagesRequest.make ~image_ids:[image_id] () in
-    let%bind result =
+    let* result =
       Lwt.Infix.(Aws_lwt.Runtime.run_request
         ~region:settings.aws_region
         ~access_key:t.aws_key
@@ -321,32 +321,46 @@ module Aws : Provider_template.Provider = struct
     | Error as e -> R.error_msgf "AMI has failed with reason %s."
       (Types.ImageState.to_string e)
 
-  let publish_image ?profile ~t ~settings ~n ~guid =
+  let publish_image ~profile ~t ~settings ~n ~guid =
     let instance_id = t.instance_id in
-    let bind = Lwt_result.bind in
-    let%bind box_id = repeat_until_ok (save_box ~t ~settings ~n ~instance_id ~guid) 20 in
+    let ( let* ) = Lwt_result.bind in
+    let* box_id = repeat_until_ok (save_box ~t ~settings ~n ~instance_id ~guid) 20 in
     let none = (fun () -> R.error_msg missing_ami_err_msg) in
-    let%bind image_id = Types.CreateImageResult.(box_id.image_id) |> R.of_option ~none |> Lwt.return
+    let* image_id = Types.CreateImageResult.(box_id.image_id) |> R.of_option ~none |> Lwt.return
     in
-    let%bind waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 240 in
-    let%bind _store_result = store_ami ?profile ~settings ~n ~guid waiting_image in
+    let* waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 240 in
+    let* _store_result = store_ami ?profile ~settings ~n ~guid waiting_image in
     Lwt.return_ok waiting_image
 
-  let runcmd transfer t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
+  let make_file_transfer_payload src dst =
+    let json : Yojson.Safe.t = `Assoc [("src", `String src); ("dst", `String dst)] in
+    Yojson.Safe.to_string json
+
+  let runcmd transfer_fn t (params : Lib.run_parameters) (settings : Settings.t) (n : Node.real_node) guid (cmd : Command.t) :
       (string, [> R.msg] * string) result Lwt.t =
     let%lwt () = Node.node_log n (Command.to_string cmd) in
     let expire_time = 12 * Node.rnode_get_expire_time n in
+    let base_uri = Uri.make ~scheme:"http" ~port:8000 ~host:t.ip_address () in
     match cmd with
     | Command.(Run shell_cmd) ->
-      send_command t.ip_address ~expire_time shell_cmd
+      let u = Uri.with_path base_uri "/command" in
+      send_command u ~expire_time shell_cmd
     | Upload (first_arg, second_arg) ->
-      send_command t.ip_address ~expire_time
-        @@ transfer ~first_arg ~second_arg ~verb:`Put
+      let u = Uri.with_path base_uri "/upload" in
+      let uri = Uri.to_string (transfer_fn (sprintf "/%s/%s/%s" guid n.name second_arg) `Put) in
+      let payload = make_file_transfer_payload first_arg uri in
+      send_command u ~expire_time payload
     | Download (first_arg, second_arg)  ->
-      send_command t.ip_address ~expire_time
-        @@ transfer ~first_arg ~second_arg ~verb:`Get
+      let u = Uri.with_path base_uri "/download" in
+      let uri = if Uri.of_string first_arg |> Uri.scheme |> Option.is_none then
+          Uri.to_string (transfer_fn (sprintf "/%s/%s" guid first_arg) `Get)
+        else
+          first_arg
+      in
+      let payload = make_file_transfer_payload uri second_arg in
+      send_command u ~expire_time payload
     | Publish ->
-      let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid in
+      let%lwt image_id = publish_image ~profile:params.aws_profile ~t ~settings ~n ~guid in
       (match image_id with
       | Ok i ->
         let%lwt () = Node.node_log n (Fmt.str "Saved instance as %s" i) in

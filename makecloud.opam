@@ -26,7 +26,6 @@ depends: [
   "lwt"{>="2.7.0"}
   "lwt_ppx"
   "menhir"
-  "ocaml-monadic"{>="0.4.0"}
   "opam-lock"
   "ppx_blob"
   "ppx_defer"
@@ -35,6 +34,7 @@ depends: [
   "ppx_protocol_conv"{>="5.0.0"}
   "ppx_protocol_conv_json"
   "ppx_protocol_conv_yaml"
+  "ppx_deriving_yojson"
   "rresult"
   "tls"
   "uucp"
@@ -43,4 +43,4 @@ depends: [
   "yojson"
 ]
 synopsis: "A simple build system for complex builds"
-available: [ ocaml-version >= "4.05.0" ]
+available: [ ocaml-version >= "4.08.0" ]

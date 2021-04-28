@@ -150,7 +150,6 @@ depends: [
   "ocaml-compiler-libs" {= "v0.12.3"}
   "ocaml-inifiles" {= "1.2"}
   "ocaml-migrate-parsetree" {= "1.8.0"}
-  "ocaml-monadic" {= "0.4.1"}
   "ocaml-syntax-shims" {= "1.0.0"}
   "ocamlbuild" {= "0.14.0"}
   "ocamlfind" {= "1.8.1"}
@@ -177,6 +176,7 @@ depends: [
   "ppx_defer" {= "0.4.0"}
   "ppx_derivers" {= "1.2.1"}
   "ppx_deriving" {= "5.1"}
+  "ppx_deriving_yojson" {= "3.6.1"}
   "ppx_enumerate" {= "v0.14.0"}
   "ppx_expect" {= "v0.14.0"}
   "ppx_fields_conv" {= "v0.14.1"}
@@ -237,17 +237,10 @@ pin-depends: [
     "git+https://github.com/UnrealAkama/aws-s3.git#cred_fetch"
   ]
   [
-    "aws-lwt.~dev"
-    "git+https://github.com/UnrealAkama/ocaml-aws.git#mainline"
+    "aws-lwt.~dev" "git+https://github.com/UnrealAkama/ocaml-aws.git#mainline"
   ]
-  [
-    "aws-ec2.1.1"
-    "git+https://github.com/UnrealAkama/ocaml-aws.git#mainline"
-  ]
-  [
-    "aws-s3.4.5.1"
-    "git+https://github.com/UnrealAkama/aws-s3.git#cred_fetch"
-  ]
+  ["aws-ec2.1.1" "git+https://github.com/UnrealAkama/ocaml-aws.git#mainline"]
+  ["aws-s3.4.5.1" "git+https://github.com/UnrealAkama/aws-s3.git#cred_fetch"]
   ["aws.1.0.2" "git+https://github.com/UnrealAkama/ocaml-aws.git#mainline"]
   ["uri.4.1.0" "git+https://github.com/UnrealAkama/ocaml-uri.git#mainline"]
 ]
