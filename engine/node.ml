@@ -154,20 +154,20 @@ let update_node_dependencies todo_node (can_cache, finished_node) =
 
 let make_snode (yaml_root : string * Yaml.value) :
     (synthetic_node, [> R.msg]) result =
-  let bind = R.bind in
+  let ( let* ) = R.bind in
   let node_name, _ = yaml_root in
-  let%bind attrib_list = get_assoc_list (snd yaml_root) in
-  let%bind deps = get_value attrib_list "dependson" in
-  let%bind deps_list = get_array deps in
-  let%bind deps_list_str = result_fold get_string [] deps_list in
+  let* attrib_list = get_assoc_list (snd yaml_root) in
+  let* deps = get_value attrib_list "dependson" in
+  let* deps_list = get_array deps in
+  let* deps_list_str = result_fold get_string [] deps_list in
   Ok {name= node_name; dependson= deps_list_str}
 
 let make_rnode (yaml_root : string * Yaml.value) :
     (real_node, [> R.msg]) result =
-  let bind = R.bind in
+  let ( let* ) = R.bind in
   let node_name, _ = yaml_root in
-  let%bind attrib_list = get_assoc_list (snd yaml_root) in
-  let%bind file_root =
+  let* attrib_list = get_assoc_list (snd yaml_root) in
+  let* file_root =
     match get_value attrib_list "fileroot" with
     | Error _ ->
       R.error_msg (sprintf "%s needs an attribute fileroot" node_name)
@@ -176,40 +176,40 @@ let make_rnode (yaml_root : string * Yaml.value) :
       | Error _ -> get_string (snd roots) |> R.map (fun x -> [x])
       | Ok roots_list -> result_fold get_string [] roots_list)
   in
-  let%bind base = get_string_from_attrib_list attrib_list "base" in
-  let%bind steps_raw = get_value attrib_list "steps" in
-  let%bind steps_yaml = get_array steps_raw in
-  let%bind rev_steps = result_fold get_string [] steps_yaml in
+  let* base = get_string_from_attrib_list attrib_list "base" in
+  let* steps_raw = get_value attrib_list "steps" in
+  let* steps_yaml = get_array steps_raw in
+  let* rev_steps = result_fold get_string [] steps_yaml in
   let steps = List.rev rev_steps in
-  let%bind steps = Command.parse_commands steps in
-  let%bind dependson =
+  let* steps = Command.parse_commands steps in
+  let* dependson =
     match get_value attrib_list "dependson" with
     | Error _ ->
         Ok []
     | Ok deps ->
-        let%bind deps_list = get_array deps in
+        let* deps_list = get_array deps in
         result_fold get_string [] deps_list
   in
-  let%bind keywords =
+  let* keywords =
     match get_value attrib_list "keywords" with
     | Error _ ->
         Ok []
     | Ok keys ->
-        let%bind keys_list = get_array keys in
-        let%bind strings = result_fold get_string [] keys_list in
+        let* keys_list = get_array keys in
+        let* strings = result_fold get_string [] keys_list in
         result_fold keyword_of_string [] strings
   in
-  let%bind env =
+  let* env =
     match get_value attrib_list "env" with
     | Error _ ->
         Ok []
     | Ok keys ->
-        let%bind keys_list = get_array keys in
+        let* keys_list = get_array keys in
         result_fold
           (fun x ->
-            let%bind key = get_string x in
+            let* key = get_string x in
             let potential_value = Sys.getenv_opt key in
-            let%bind value =
+            let* value =
               R.of_option
                 ~none:(fun () ->
                   R.error_msg (sprintf "Failed to get an env variable: %s" key))
@@ -233,12 +233,12 @@ let make_rnode (yaml_root : string * Yaml.value) :
     ; cache }
 
 let make_node (yaml_root : string * Yaml.value) : (node, [> R.msg]) result =
-  let bind = R.bind in
-  let%bind assoc_list = get_assoc_list (snd yaml_root) in
+  let ( let* ) = R.bind in
+  let* assoc_list = get_assoc_list (snd yaml_root) in
   match get_value assoc_list "base" with
   | Ok _ ->
-      let%bind node = make_rnode yaml_root in
+      let* node = make_rnode yaml_root in
       Ok (Rnode node)
   | Error _ ->
-      let%bind node = make_snode yaml_root in
+      let* node = make_snode yaml_root in
       Ok (Snode node)

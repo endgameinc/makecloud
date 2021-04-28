@@ -36,9 +36,9 @@ type t =
 
 let parse_settings filepath =
   let aux () =
-    let bind = R.bind in
-    let%bind contents = Bos.OS.File.read filepath in
-    let%bind yaml = Yaml.of_string contents in
+    let ( let* ) = R.bind in
+    let* contents = Bos.OS.File.read filepath in
+    let* yaml = Yaml.of_string contents in
     match of_yaml yaml with
     | Ok y ->
         R.ok y

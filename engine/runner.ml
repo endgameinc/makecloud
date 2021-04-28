@@ -41,11 +41,11 @@ let get_configs dir_root =
   aux [dir_root] []
 
 let parse_configs config_list : (Node.node list, [> R.msg]) result =
-  let bind = R.bind in
-  let%bind dirty_root_nodes =
+  let ( let* ) = R.bind in
+  let* dirty_root_nodes =
     result_fold (fun x -> Yaml_unix.of_file Fpath.(v x)) [] config_list
   in
-  let%bind cleaned_roots = result_fold get_assoc_list [] dirty_root_nodes in
+  let* cleaned_roots = result_fold get_assoc_list [] dirty_root_nodes in
   let flattened_roots = List.concat cleaned_roots in
   result_fold Node.make_node [] flattened_roots
 
@@ -156,7 +156,7 @@ module Runner (M : Provider_template.Provider) = struct
     in
     Lwt.return ()
 
-  let check_cache ?profile ~(settings : Settings.t) ~cwd ~n =
+  let check_cache ~profile ~(settings : Settings.t) ~cwd ~n =
     let%lwt hash = Node.hash_of_node cwd n in
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile () in
     let safe_creds = R.get_ok creds in
@@ -180,15 +180,15 @@ module Runner (M : Provider_template.Provider) = struct
     let retries = 3 in
     let old_key = sprintf "%s/%s/%s" old_guid n.name filename in
     let new_key = sprintf "%s/%s/%s" new_guid n.name filename in
-    let bind = Lwt_result.bind in
-    let%bind init =
+    let ( let* ) = Lwt_result.bind in
+    let* init =
       Aws_s3_lwt.S3.retry ~endpoint ~retries
         ~f:(fun ~endpoint () ->
           Aws_s3_lwt.S3.Multipart_upload.init ~endpoint ~credentials
             ~bucket:settings.storage_bucket ~key:new_key ())
         ()
     in
-    let%bind () =
+    let* () =
       Aws_s3_lwt.S3.retry ~endpoint ~retries
         ~f:(fun ~endpoint () ->
           Aws_s3_lwt.S3.Multipart_upload.copy_part ~endpoint ~credentials init
@@ -223,7 +223,7 @@ module Runner (M : Provider_template.Provider) = struct
       (transfer_fn : string -> [`Get | `Put] -> Uri.t) :
       (bool, [> R.msg]) result Lwt.t =
     let is_cachable = Node.is_node_cachable n in
-    let%lwt cache_status = check_cache ?profile:params.aws_profile ~settings ~cwd:params.repo_dir ~n in
+    let%lwt cache_status = check_cache ~profile:params.aws_profile ~settings ~cwd:params.repo_dir ~n in
     let guid = Uuidm.to_string params.guid in
     match is_cachable && R.is_ok cache_status && not params.nocache with
     | true -> (

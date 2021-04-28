@@ -294,9 +294,9 @@ module Aws : Provider_template.Provider = struct
     Lwt.return @@ R.reword_error (fun _ -> `Msg "Failed to store ami in s3.") result
 
   let check_on_ami ~t ~(settings : Settings.t) ~n image_id () =
-    let bind = Lwt_result.bind in
+    let ( let* ) = Lwt_result.bind in
     let ami_req = Types.DescribeImagesRequest.make ~image_ids:[image_id] () in
-    let%bind result =
+    let* result =
       Lwt.Infix.(Aws_lwt.Runtime.run_request
         ~region:settings.aws_region
         ~access_key:t.aws_key
@@ -321,15 +321,15 @@ module Aws : Provider_template.Provider = struct
     | Error as e -> R.error_msgf "AMI has failed with reason %s."
       (Types.ImageState.to_string e)
 
-  let publish_image ?profile ~t ~settings ~n ~guid =
+  let publish_image ~profile ~t ~settings ~n ~guid =
     let instance_id = t.instance_id in
-    let bind = Lwt_result.bind in
-    let%bind box_id = repeat_until_ok (save_box ~t ~settings ~n ~instance_id ~guid) 20 in
+    let ( let* ) = Lwt_result.bind in
+    let* box_id = repeat_until_ok (save_box ~t ~settings ~n ~instance_id ~guid) 20 in
     let none = (fun () -> R.error_msg missing_ami_err_msg) in
-    let%bind image_id = Types.CreateImageResult.(box_id.image_id) |> R.of_option ~none |> Lwt.return
+    let* image_id = Types.CreateImageResult.(box_id.image_id) |> R.of_option ~none |> Lwt.return
     in
-    let%bind waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 240 in
-    let%bind _store_result = store_ami ?profile ~settings ~n ~guid waiting_image in
+    let* waiting_image = repeat_until_ok (check_on_ami ~t ~settings ~n image_id) 240 in
+    let* _store_result = store_ami ?profile ~settings ~n ~guid waiting_image in
     Lwt.return_ok waiting_image
 
   let make_file_transfer_payload src dst =
@@ -360,7 +360,7 @@ module Aws : Provider_template.Provider = struct
       let payload = make_file_transfer_payload uri second_arg in
       send_command u ~expire_time payload
     | Publish ->
-      let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid in
+      let%lwt image_id = publish_image ~profile:params.aws_profile ~t ~settings ~n ~guid in
       (match image_id with
       | Ok i ->
         let%lwt () = Node.node_log n (Fmt.str "Saved instance as %s" i) in

@@ -101,7 +101,7 @@ let process aws_profile req body =
       (sprintf "refs/heads/%s" gh_info.repository.master_branch)
   in
   Lwt.async (fun () ->
-    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] ?aws_profile in
+    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] ~aws_profile in
     Engine.Runner.main params);
   Lwt.return ()
 

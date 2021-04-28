@@ -150,7 +150,6 @@ depends: [
   "ocaml-compiler-libs" {= "v0.12.3"}
   "ocaml-inifiles" {= "1.2"}
   "ocaml-migrate-parsetree" {= "1.8.0"}
-  "ocaml-monadic" {= "0.4.1"}
   "ocaml-syntax-shims" {= "1.0.0"}
   "ocamlbuild" {= "0.14.0"}
   "ocamlfind" {= "1.8.1"}

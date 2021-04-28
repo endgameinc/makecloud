@@ -26,7 +26,6 @@ depends: [
   "lwt"{>="2.7.0"}
   "lwt_ppx"
   "menhir"
-  "ocaml-monadic"{>="0.4.0"}
   "opam-lock"
   "ppx_blob"
   "ppx_defer"
