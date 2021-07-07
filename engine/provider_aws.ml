@@ -321,7 +321,7 @@ module Aws : Provider_template.Provider = struct
     | Error as e -> R.error_msgf "AMI has failed with reason %s."
       (Types.ImageState.to_string e)
 
-  let publish_image ?profile ~t ~settings ~n ~guid =
+  let publish_image ?profile ~t ~settings ~n ~guid () =
     let instance_id = t.instance_id in
     let bind = Lwt_result.bind in
     let%bind box_id = repeat_until_ok (save_box ~t ~settings ~n ~instance_id ~guid) 20 in
@@ -346,7 +346,7 @@ module Aws : Provider_template.Provider = struct
       send_command t.ip_address ~expire_time
         @@ transfer ~first_arg ~second_arg ~verb:`Get
     | Publish ->
-      let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid in
+      let%lwt image_id = publish_image ?profile:params.aws_profile ~t ~settings ~n ~guid () in
       (match image_id with
       | Ok i ->
         let%lwt () = Node.node_log n (Fmt.str "Saved instance as %s" i) in

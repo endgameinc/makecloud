@@ -10,7 +10,7 @@ type run_parameters =
   ; aws_profile : string option
   ; guid : Uuidm.t }
 
-let make_params ?aws_profile ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete =
+let make_params ?aws_profile ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete () =
   let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
   { repo_dir; nocache; deploy; target_nodes; guid; dont_delete; aws_profile }
 

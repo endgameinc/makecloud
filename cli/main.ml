@@ -5,7 +5,7 @@ open Engine.Lib
 
 let main repo_dir nocache deploy target_nodes dont_delete profile =
   let dont_delete = match dont_delete with | Some x -> [x] | None -> [] in
-  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete ?aws_profile:profile in
+  let params = Engine.Lib.make_params ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete ?aws_profile:profile () in
   Lwt_main.run (Engine.Runner.main params)
 
 let check repo_dir =
@@ -117,7 +117,7 @@ let show_all_cache profile repo_dir =
      let print_node_cache (n : Engine.Node.real_node) =
        let name = Engine.Node.node_to_string (Engine.Node.Rnode n) in
        let%lwt rstatus =
-         Engine.Runner.AwsRunner.check_cache ?profile ~settings ~cwd:repo_dir ~n
+         Engine.Runner.AwsRunner.check_cache ?profile ~settings ~cwd:repo_dir ~n ()
        in
        let status = R.is_ok rstatus in
        let%lwt hash = Engine.Node.hash_of_node repo_dir n in
