@@ -128,10 +128,11 @@ let run_command ~timeout ~command =
 
 let key_check () =
   match Sys.getenv_opt "MC_KEY" with
-  | Some _ ->
-      ()
+  | Some ""
   | None ->
       failwith "Error: The ENV variable MC_KEY isn't set and must be set."
+  | Some s ->
+    ()
 
 (*TODO These don't need to be polymophic*)
 type verb = [`Get | `Put]
