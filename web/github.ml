@@ -65,8 +65,8 @@ let get_archive token full sha =
   let temp_file = Filename.temp_file "makecloud_gh_download" ".tar.gz" in
   let%lwt () = Lwt_io.printl temp_file in
   let%lwt fp = Lwt_io.open_file ~mode:Output temp_file in
-  [%defer.lwt Lwt_io.close fp] ;
   let%lwt () = Lwt_io.write_lines fp (Cohttp_lwt.Body.to_stream body) in
+  let%lwt () = Lwt_io.close fp in
   Lwt.return temp_file
 
 let parse_github _req body =
@@ -101,7 +101,7 @@ let process aws_profile req body =
       (sprintf "refs/heads/%s" gh_info.repository.master_branch)
   in
   Lwt.async (fun () ->
-    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] ?aws_profile in
+    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] ?aws_profile () in
     Engine.Runner.main params);
   Lwt.return ()
 

@@ -176,7 +176,7 @@ module Runner (M : Provider_template.Provider) = struct
     in
     Lwt.return ()
 
-  let check_cache ?profile ~(settings : Settings.t) ~cwd ~n =
+  let check_cache ?profile ~(settings : Settings.t) ~cwd ~n () =
     let%lwt hash = Node.hash_of_node cwd n in
     let%lwt creds = Aws_s3_lwt.Credentials.Helper.get_credentials ?profile () in
     let safe_creds = R.get_ok creds in
@@ -243,7 +243,7 @@ module Runner (M : Provider_template.Provider) = struct
       (transfer_fn : string -> [`Get | `Put] -> Uri.t) :
       (bool, [> R.msg]) result Lwt.t =
     let is_cachable = Node.is_node_cachable n in
-    let%lwt cache_status = check_cache ?profile:params.aws_profile ~settings ~cwd:params.repo_dir ~n in
+    let%lwt cache_status = check_cache ?profile:params.aws_profile ~settings ~cwd:params.repo_dir ~n () in
     let guid = Uuidm.to_string params.guid in
     match is_cachable && R.is_ok cache_status && not params.nocache with
     | true -> (

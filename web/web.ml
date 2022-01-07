@@ -198,13 +198,6 @@ let logs_request req =
   in
   Format.asprintf "[%a] %a" time_pp time Request.pp_hum req
 
-let key_check () =
-  match Sys.getenv_opt "MC_KEY" with
-  | Some _ ->
-      ()
-  | None ->
-      failwith "Error: The ENV variable MC_KEY isn't set and must be set."
-
 let router t api_key profile _conn req body =
   let uri = Cohttp.Request.uri req in
   let auth = http_auth api_key in

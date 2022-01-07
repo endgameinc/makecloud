@@ -10,7 +10,7 @@ type run_parameters =
   ; aws_profile : string option
   ; guid : Uuidm.t }
 
-let make_params ?aws_profile ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete =
+let make_params ?aws_profile ~repo_dir ~nocache ~deploy ~target_nodes ~dont_delete () =
   let guid = Uuidm.v4_gen (Random.State.make_self_init ()) () in
   { repo_dir; nocache; deploy; target_nodes; guid; dont_delete; aws_profile }
 
@@ -128,10 +128,11 @@ let run_command ~timeout ~command =
 
 let key_check () =
   match Sys.getenv_opt "MC_KEY" with
-  | Some _ ->
-      ()
+  | Some ""
   | None ->
       failwith "Error: The ENV variable MC_KEY isn't set and must be set."
+  | Some s ->
+    ()
 
 (*TODO These don't need to be polymophic*)
 type verb = [`Get | `Put]

@@ -29,7 +29,6 @@ depends: [
   "ocaml-monadic"{>="0.4.0"}
   "opam-lock"
   "ppx_blob"
-  "ppx_defer"
   "ppx_deriving"
   "ppx_irmin"
   "ppx_protocol_conv"{>="5.0.0"}
@@ -43,4 +42,4 @@ depends: [
   "yojson"
 ]
 synopsis: "A simple build system for complex builds"
-available: [ ocaml-version >= "4.05.0" ]
+available: [ ocaml-version ="4.11.0" ]
