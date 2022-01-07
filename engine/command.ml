@@ -27,12 +27,11 @@ let parse_run cmd_string =
   let body = String.concat " " cmd_string in
   Ok (Run body)
 
-let parse_publish =
-  Ok (Publish)
+let parse_publish = Ok Publish
 
 let parse_command cmd =
   let split = String.split_on_char ' ' cmd in
-  match List.hd (split), List.tl (split) with
+  match (List.hd split, List.tl split) with
   | "RUN", rest -> parse_run rest
   | "UPLOAD", rest -> parse_upload rest
   | "DOWNLOAD", rest -> parse_download rest
@@ -41,10 +40,10 @@ let parse_command cmd =
 
 let parse_commands cmds =
   let aux past_cmds new_cmd : (t list, [> R.msg ]) result =
-    match (past_cmds), (parse_command new_cmd) with
-    | Ok old_cmds, Ok cmd -> Ok (old_cmds @ [cmd])
+    match (past_cmds, parse_command new_cmd) with
+    | Ok old_cmds, Ok cmd -> Ok (old_cmds @ [ cmd ])
     | Ok _, (Error _ as e) -> e
-    | Error _ as e, _ -> e
+    | (Error _ as e), _ -> e
   in
   List.fold_left aux (Ok []) cmds
 
@@ -58,6 +57,6 @@ let to_string cmd =
 let src_files cmd =
   match cmd with
   | Run _ -> []
-  | Upload (_, dst) -> [dst]
-  | Download (fst, _) -> [fst]
-  | Publish -> [".ami_id"]
+  | Upload (_, dst) -> [ dst ]
+  | Download (fst, _) -> [ fst ]
+  | Publish -> [ ".ami_id" ]

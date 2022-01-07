@@ -1,9 +1,11 @@
 (executable
  (name main)
  (public_name mc)
- (libraries engine lwt.unix cmdliner yaml.unix aws-ec2 aws-lwt aws-s3-lwt rresult uuidm digestif astring)
- (preprocess (pps lwt_ppx  ocaml-monadic )))
+ (libraries engine lwt.unix cmdliner yaml.unix aws-ec2 aws-lwt aws-s3-lwt
+   rresult uuidm digestif astring)
+ (preprocess
+  (pps lwt_ppx ocaml-monadic)))
 
 (alias
-  (name makecloud-cli)
-  (deps main.exe))
+ (name makecloud-cli)
+ (deps main.exe))

@@ -1,29 +1,27 @@
 let sprintf = Printf.sprintf
 
-type repository = {full_name: string; master_branch: string}
+type repository = { full_name : string; master_branch : string }
 [@@deriving protocol ~driver:(module Protocol_conv_json.Json)]
 
-type head_commit = {id: string}
+type head_commit = { id : string }
 [@@deriving protocol ~driver:(module Protocol_conv_json.Json)]
 
-type github_response =
-  {ref: string; repository: repository; head_commit: head_commit}
+type github_response = {
+  ref : string;
+  repository : repository;
+  head_commit : head_commit;
+}
 [@@deriving protocol ~driver:(module Protocol_conv_json.Json)]
 
 type status = Pending | Success | Failed | Error
-
-type msg = {state: status; target_url: Uri.t; description: string}
+type msg = { state : status; target_url : Uri.t; description : string }
 
 let status_to_string x =
   match x with
-  | Pending ->
-      "pending"
-  | Success ->
-      "success"
-  | Failed ->
-      "failed"
-  | Error ->
-      "error"
+  | Pending -> "pending"
+  | Success -> "success"
+  | Failed -> "failed"
+  | Error -> "error"
 
 let send_status (token : string) full sha (status : status) =
   let path = sprintf "/repos/%s/statuses/%s" full sha in
@@ -54,8 +52,7 @@ let get_archive token full sha =
   in
   let download_loc =
     match download_loc with
-    | Some x ->
-        x
+    | Some x -> x
     | None ->
         failwith
           "No redirect in response from Github when asking for a download, \
@@ -74,8 +71,7 @@ let parse_github _req body =
   let gh_resp = Yojson.Safe.from_string body |> github_response_of_json in
   let%lwt gh_resp =
     match gh_resp with
-    | Ok x ->
-        Lwt.return x
+    | Ok x -> Lwt.return x
     | Error _ ->
         failwith
           "JSON sent to handler was improperly formatted, this really \
@@ -101,8 +97,11 @@ let process aws_profile req body =
       (sprintf "refs/heads/%s" gh_info.repository.master_branch)
   in
   Lwt.async (fun () ->
-    let params = Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[] ~dont_delete:[] ?aws_profile () in
-    Engine.Runner.main params);
+      let params =
+        Engine.Lib.make_params ~repo_dir ~nocache:false ~deploy ~target_nodes:[]
+          ~dont_delete:[] ?aws_profile ()
+      in
+      Engine.Runner.main params);
   Lwt.return ()
 
 let handler profile req body =

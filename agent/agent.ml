@@ -1,38 +1,37 @@
 open Cohttp_lwt_unix
 module R = Rresult.R
+
 let sprintf = Printf.sprintf
-
 let env = ref [||]
-
 let cmds = ref []
-
 let outputs = ref []
-
 let next_id = ref 0
 
 let win_env =
-  [ "ALLUSERSPROFILE"
-  ; "APPDATA"
-  ; "CommonProgramFiles"
-  ; "CommonProgramFiles(x86)"
-  ; "CommonProgramW6432"
-  ; "COMPUTERNAME"
-  ; "HOMEDRIVE"
-  ; "HOMEPATH"
-  ; "LOCALAPPDATA"
-  ; "LOGONSERVER"
-  ; "PATH"
-  ; "ProgramData"
-  ; "ProgramFiles"
-  ; "ProgramFiles(x86)"
-  ; "ProgramW6432"
-  ; "PUBLIC"
-  ; "SESSIONNAME"
-  ; "SystemDrive"
-  ; "SystemRoot"
-  ; "USERDOMAIN"
-  ; "USERDOMAIN_ROAMINGPROFILE"
-  ; "USERPROFILE" ]
+  [
+    "ALLUSERSPROFILE";
+    "APPDATA";
+    "CommonProgramFiles";
+    "CommonProgramFiles(x86)";
+    "CommonProgramW6432";
+    "COMPUTERNAME";
+    "HOMEDRIVE";
+    "HOMEPATH";
+    "LOCALAPPDATA";
+    "LOGONSERVER";
+    "PATH";
+    "ProgramData";
+    "ProgramFiles";
+    "ProgramFiles(x86)";
+    "ProgramW6432";
+    "PUBLIC";
+    "SESSIONNAME";
+    "SystemDrive";
+    "SystemRoot";
+    "USERDOMAIN";
+    "USERDOMAIN_ROAMINGPROFILE";
+    "USERPROFILE";
+  ]
 
 let option_map fx x = match x with Some y -> Some (fx y) | None -> None
 
@@ -44,38 +43,35 @@ let run_command ~command =
         List.fold_left
           (fun acc x ->
             match (x, Sys.getenv_opt x) with
-            | _, None ->
-                acc
-            | z, Some y ->
-                (z ^ "=" ^ y) :: acc)
+            | _, None -> acc
+            | z, Some y -> (z ^ "=" ^ y) :: acc)
           [] win_env
         |> Array.of_list
-    | _ ->
-        [||]
+    | _ -> [||]
   in
   let lwt_ofd, ofd = Lwt_unix.pipe_in () in
   let out = Lwt_io.(read_lines (of_fd ~mode:Input lwt_ofd)) in
   let lwt_efd, efd = Lwt_unix.pipe_in () in
   let err = Lwt_io.(read_lines (of_fd ~mode:Input lwt_efd)) in
-  let status = Lwt_process.exec ~env:(Array.append !env additional_env) ~stdout:(`FD_copy ofd) ~stderr:(`FD_copy efd) command in
+  let status =
+    Lwt_process.exec
+      ~env:(Array.append !env additional_env)
+      ~stdout:(`FD_copy ofd) ~stderr:(`FD_copy efd) command
+  in
   Lwt.return (status, out, err)
 
 let authentication key req =
   let req_key = Cohttp.Header.get (Request.headers req) "ApiKey" in
   match option_map (String.equal key) req_key with
-  | Some true ->
-      true
-  | _ ->
-      false
+  | Some true -> true
+  | _ -> false
 
 let http_command _req body =
   let%lwt command = Cohttp_lwt.Body.to_string body in
-  let promise =
-    run_command ~command:(Lwt_process.shell command)
-  in
+  let promise = run_command ~command:(Lwt_process.shell command) in
   let id = !next_id in
-  next_id := id + 1 ;
-  cmds := (id, promise) :: !cmds ;
+  next_id := id + 1;
+  cmds := (id, promise) :: !cmds;
   Server.respond_string ~status:`Accepted ~body:(string_of_int id) ()
 
 (* TOOD: Figure out how to handle this better. Probably should use norest once that gets open sourced.*)
@@ -86,22 +82,17 @@ let get_command req =
     match Uri.get_query_param uri "id" with
     | None ->
         R.error (`Bad_request, "must supply an id parameter that is a number.")
-    | Some i ->
-        R.ok i
+    | Some i -> R.ok i
   in
   let%bind id =
     match int_of_string_opt str_id with
-    | None ->
-        R.error (`Bad_request, "Your id parameter must be a number.")
-    | Some x ->
-        R.ok x
+    | None -> R.error (`Bad_request, "Your id parameter must be a number.")
+    | Some x -> R.ok x
   in
   let%bind promise =
     match List.assoc_opt id !cmds with
-    | None ->
-        R.error (`Not_found, "No such command.")
-    | Some x ->
-        R.ok x
+    | None -> R.error (`Not_found, "No such command.")
+    | Some x -> R.ok x
   in
   R.ok (id, promise)
 
@@ -111,39 +102,47 @@ let handle_output job_id out err =
   let all_lines = new_out_lines @ new_err_lines in
   match List.assoc_opt job_id !outputs with
   | None ->
-    outputs := (job_id, all_lines) :: !outputs;
-    Lwt.return (String.concat "\n" all_lines)
+      outputs := (job_id, all_lines) :: !outputs;
+      Lwt.return (String.concat "\n" all_lines)
   | Some old_lines ->
-    let untouched = List.remove_assoc job_id !outputs in
-    let lines = old_lines @ all_lines in
-    outputs := (job_id, lines) :: untouched;
-    Lwt.return (String.concat "\n" (lines))
+      let untouched = List.remove_assoc job_id !outputs in
+      let lines = old_lines @ all_lines in
+      outputs := (job_id, lines) :: untouched;
+      Lwt.return (String.concat "\n" lines)
 
 let http_check_command req body =
   let%lwt () = Cohttp_lwt.Body.drain_body body in
   match get_command req with
-  | Error (code, msg) ->
-      Server.respond_string ~status:code ~body:msg ()
+  | Error (code, msg) -> Server.respond_string ~status:code ~body:msg ()
   | Ok (job_id, p) -> (
-    let%lwt status, out, err = p in
-    match Lwt.state status with
-    | Lwt.Sleep ->
-        let%lwt current_logs = handle_output job_id out err in
-        Server.respond_string ~status:`Accepted
-          ~body:current_logs ()
-    | Lwt.Fail e ->
-        Server.respond_string ~status:`Internal_server_error
-          ~body:(sprintf "Something went very wrong will running command: %s." (Printexc.to_string e)) ()
-    | Lwt.Return (s) -> (
-      let%lwt current_logs = handle_output job_id out err in
-      match s with
-      | Unix.WEXITED 0 ->
-          Server.respond_string ~status:`OK ~body:current_logs ()
-      | Unix.WEXITED i ->
-          Server.respond_string ~status:`Unprocessable_entity ~body:(Printf.sprintf "job failed with error code %d, logs:\n%s\n" i current_logs) ()
-      | _ ->
-          Server.respond_string ~status:`Unprocessable_entity
-            ~body:(sprintf "failure to run command. logs are \n%s\n" current_logs) () ) )
+      let%lwt status, out, err = p in
+      match Lwt.state status with
+      | Lwt.Sleep ->
+          let%lwt current_logs = handle_output job_id out err in
+          Server.respond_string ~status:`Accepted ~body:current_logs ()
+      | Lwt.Fail e ->
+          Server.respond_string ~status:`Internal_server_error
+            ~body:
+              (sprintf "Something went very wrong will running command: %s."
+                 (Printexc.to_string e))
+            ()
+      | Lwt.Return s -> (
+          let%lwt current_logs = handle_output job_id out err in
+          match s with
+          | Unix.WEXITED 0 ->
+              Server.respond_string ~status:`OK ~body:current_logs ()
+          | Unix.WEXITED i ->
+              Server.respond_string ~status:`Unprocessable_entity
+                ~body:
+                  (Printf.sprintf "job failed with error code %d, logs:\n%s\n" i
+                     current_logs)
+                ()
+          | _ ->
+              Server.respond_string ~status:`Unprocessable_entity
+                ~body:
+                  (sprintf "failure to run command. logs are \n%s\n"
+                     current_logs)
+                ()))
 
 let http_set_env _req body =
   let%lwt json_body = Cohttp_lwt.Body.to_string body in
@@ -157,10 +156,9 @@ let http_set_env _req body =
   in
   let process_pairs acc (k, v) =
     match acc with
-    | None ->
-        None
+    | None -> None
     | Some r -> (
-      match v with None -> None | Some item -> Some ((k, item) :: r) )
+        match v with None -> None | Some item -> Some ((k, item) :: r))
   in
   let env_list = List.fold_left process_pairs (Some []) pairs in
   match env_list with
@@ -169,7 +167,7 @@ let http_set_env _req body =
         ~body:"body must be a json object with key,value pairs in it." ()
   | Some p ->
       let weird_fmt = List.map (fun (k, v) -> Printf.sprintf "%s=%s" k v) p in
-      env := Array.of_list weird_fmt ;
+      env := Array.of_list weird_fmt;
       Server.respond_string ~status:`OK
         ~body:"Finished successfully setting env variables!" ()
 
@@ -180,22 +178,16 @@ let http_show_env _req _body =
 let router req body =
   let uri = Cohttp.Request.uri req in
   match Uri.path uri with
-  | "/command" ->
-      http_command req body
-  | "/check_command" ->
-      http_check_command req body
-  | "/set_env" ->
-      http_set_env req body
-  | "/show_env" ->
-      http_show_env req body
-  | _ ->
-      Server.respond_string ~status:`Not_found ~body:"Route not found" ()
+  | "/command" -> http_command req body
+  | "/check_command" -> http_check_command req body
+  | "/set_env" -> http_set_env req body
+  | "/show_env" -> http_show_env req body
+  | _ -> Server.respond_string ~status:`Not_found ~body:"Route not found" ()
 
 let server key =
   let callback _conn req body =
     match authentication key req with
-    | true ->
-        router req body
+    | true -> router req body
     | false ->
         Server.respond_string ~status:`Unauthorized ~body:"incorrect api key\n"
           ()
@@ -217,8 +209,10 @@ let main_t =
 let info =
   let doc = "the agent for makecloud." in
   let man =
-    [ `S Manpage.s_bugs
-    ; `P "Please report bugs to the project's github issue tracker." ]
+    [
+      `S Manpage.s_bugs;
+      `P "Please report bugs to the project's github issue tracker.";
+    ]
   in
   Term.info "makecloud" ~version:"%%VERSION%%" ~doc ~exits:Term.default_exits
     ~man

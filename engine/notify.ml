@@ -1,61 +1,47 @@
 let sprintf = Printf.sprintf
 
-type run_start =
-  { nodes : string list
-  ; edges : (string * string) list } [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
+type run_start = { nodes : string list; edges : (string * string) list }
+[@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
-type start_command =
-  { ip_address : string
-  ; secret_key : string } [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
+type start_command = { ip_address : string; secret_key : string }
+[@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
 type state =
   | StartBox
   | StartCommands of start_command
   | ProcessCache
   | EndBoxSuccessful
-  | EndBoxFailed [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
+  | EndBoxFailed
+[@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
-type run_state = RunStart of run_start | RunSuccess | RunFail | RunException [@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
+type run_state = RunStart of run_start | RunSuccess | RunFail | RunException
+[@@deriving irmin, protocol ~driver:(module Protocol_conv_json.Json)]
 
-let make_run_start nodes edges =
-  RunStart {nodes; edges}
+let make_run_start nodes edges = RunStart { nodes; edges }
 
 let make_start_commands ip_address secret_key =
-  StartCommands {ip_address; secret_key}
+  StartCommands { ip_address; secret_key }
 
 let state_name_to_string = function
-  | StartBox ->
-      "StartBox"
-  | StartCommands _ ->
-      "StartCommands"
-  | ProcessCache ->
-      "ProcessCache"
-  | EndBoxSuccessful ->
-      "EndBoxSuccessful"
-  | EndBoxFailed ->
-      "EndBoxFailed"
+  | StartBox -> "StartBox"
+  | StartCommands _ -> "StartCommands"
+  | ProcessCache -> "ProcessCache"
+  | EndBoxSuccessful -> "EndBoxSuccessful"
+  | EndBoxFailed -> "EndBoxFailed"
 
 let run_state_name_to_string = function
-  | RunStart _ ->
-      "RunStart"
-  | RunSuccess ->
-      "RunSuccess"
-  | RunFail ->
-      "RunFail"
-  | RunException ->
-      "RunException"
+  | RunStart _ -> "RunStart"
+  | RunSuccess -> "RunSuccess"
+  | RunFail -> "RunFail"
+  | RunException -> "RunException"
 
 let send_state ~(settings : Settings.t) ~guid ~node (state : state) ~key =
   match settings.notify_url with
-  | None ->
-      Lwt.return ()
+  | None -> Lwt.return ()
   | Some uri ->
       let uri = Uri.with_path uri "/report" in
       let node_name = Node.node_to_string node in
-      let q_params =
-        [ ("guid", guid)
-        ; ("node_name", node_name) ]
-      in
+      let q_params = [ ("guid", guid); ("node_name", node_name) ] in
       let uri = Uri.with_query' uri q_params in
       let headers = Cohttp.Header.init_with "ApiKey" key in
       let body_str = Yojson.Safe.to_string (state_to_json state) in
@@ -68,17 +54,14 @@ let send_state ~(settings : Settings.t) ~guid ~node (state : state) ~key =
 
 let send_run_state ~(settings : Settings.t) ~guid (state : run_state) ~key =
   match settings.notify_url with
-  | None ->
-      Lwt.return ()
+  | None -> Lwt.return ()
   | Some uri ->
       let uri = Uri.with_path uri "/run_report" in
       let guid = Uuidm.to_string guid in
       let name =
-        match settings.name with Some x -> [("name", x)] | None -> []
+        match settings.name with Some x -> [ ("name", x) ] | None -> []
       in
-      let q_params =
-        name @ [("guid", guid);]
-      in
+      let q_params = name @ [ ("guid", guid) ] in
       let uri = Uri.with_query' uri q_params in
       let headers = Cohttp.Header.init_with "ApiKey" key in
       let body_str = Yojson.Safe.to_string (run_state_to_json state) in
