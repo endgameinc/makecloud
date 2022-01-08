@@ -109,7 +109,7 @@ module Aws : Provider_template.Provider = struct
       match Node.rnode_get_box_type n with
       | None -> Types.InstanceType.M4_xlarge
       | Some it -> (
-          let item = List.assoc_opt it Types.InstanceType.str_to_t in
+          let item = List.assoc_opt (String.lowercase_ascii it) Types.InstanceType.str_to_t in
           match item with None -> Types.InstanceType.M4_xlarge | Some t -> t)
     in
     let instance_params =
