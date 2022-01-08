@@ -89,6 +89,18 @@ module Aws : Provider_template.Provider = struct
     let%lwt () = Node.node_log n "Got Credentials." in
     let%lwt user_data = make_user_data n settings in
     let%lwt base = get_base ~params ~settings ~guid ~n in
+    let disk_size =
+      match Node.rnode_get_disk_size n with
+      | None -> settings.disk_size
+      | Some size -> size
+    in
+    let instance_type =
+      match Node.rnode_get_box_type n with
+      | None -> Types.InstanceType.M4_xlarge
+      | Some it -> (
+          let item = List.assoc_opt (String.lowercase_ascii it) Types.InstanceType.str_to_t in
+          match item with None -> Types.InstanceType.M4_xlarge | Some t -> t)
+    in
     let instance_params =
       (*TODO We should gen an ssh key, upload it to aws and use that instead of a constant key. *)
       (*TODO Pull instance size from the config file.*)
@@ -97,12 +109,12 @@ module Aws : Provider_template.Provider = struct
         ~min_count:1 ~max_count:1
         ~key_name:settings.aws_key_name
         ~security_group_ids:[settings.aws_security_group]
-        ~instance_type:Types.InstanceType.M4_xlarge
+        ~instance_type
         ~block_device_mappings:[
           Types.BlockDeviceMapping.make
             ~device_name:"/dev/xvda"
             ~ebs:(Types.EbsBlockDevice.make
-                    ~volume_size:settings.disk_size
+                    ~volume_size:disk_size
                     ~delete_on_termination:true ())
             ()]
         ~subnet_id:settings.aws_subnet_id

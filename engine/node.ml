@@ -1,6 +1,6 @@
 open Lib
 
-type keyword = NoCache | Deploy | Windows | Expire of int [@@deriving show, eq]
+type keyword = NoCache | Deploy | Windows | Expire of int | Disk of int | BoxType of string [@@deriving show, eq]
 
 let keyword_of_string k =
   let split_cmd = String.split_on_char '-' k in
@@ -16,6 +16,14 @@ let keyword_of_string k =
       with _ -> R.error_msg (sprintf "%s's argument must be a int." k))
   | ["expire"] ->
       R.error_msg (sprintf "%s needs a argument, i.e. expire-30 or expire-60." k)
+  | [ "disk"; ds ] -> (
+      try Ok (Disk (int_of_string ds))
+      with _ -> R.error_msg (sprintf "%s's argument must be a int." ds))
+  | [ "disk" ] ->
+      R.error_msg (sprintf "%s needs a argument, i.e. disk-30 or disk-40" k)
+  | [ "boxtype"; ds ] -> Ok (BoxType ds)
+  | [ "boxtype" ] ->
+      R.error_msg (sprintf "%s needs a argument, i.e. boxtype-<boxtype>" k)
   | _ ->
       R.error_msg (sprintf "%s is not a known keyword." k)
 
@@ -62,6 +70,24 @@ let rnode_get_expire_time (n : real_node) =
   | Some m -> m
   (*TODO: Change this to be defined somewhere better, maybe a defaults module in engine?.*)
   | None -> 20
+
+let rnode_get_disk_size (n : real_node) =
+  let aux (current : int option) new_keyword : int option =
+    match (current, new_keyword) with
+    | _, Disk m -> Some m
+    | (Some _ as s), _ -> s
+    | None, _ -> None
+  in
+  List.fold_left aux None n.keywords
+
+let rnode_get_box_type (n : real_node) =
+  let aux current new_keyword =
+    match (current, new_keyword) with
+    | _, BoxType m -> Some m
+    | (Some _ as s), _ -> s
+    | None, _ -> None
+  in
+  List.fold_left aux None n.keywords
 
 let node_has_keyword (n : node) keyword =
   match n with Rnode x -> rnode_has_keyword x keyword | Snode _ -> false
