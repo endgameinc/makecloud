@@ -131,7 +131,7 @@ let key_check () =
   | Some ""
   | None ->
       failwith "Error: The ENV variable MC_KEY isn't set and must be set."
-  | Some s ->
+  | Some _s ->
     ()
 
 (*TODO These don't need to be polymophic*)
